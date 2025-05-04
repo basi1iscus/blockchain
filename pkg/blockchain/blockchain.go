@@ -4,6 +4,7 @@ import (
 	"blockchain_demo/pkg/block"
 	"blockchain_demo/pkg/sign"
 	"blockchain_demo/pkg/transaction"
+	"blockchain_demo/pkg/transaction/coin_transfer"
 	"fmt"
 	"strings"
 )
@@ -13,7 +14,7 @@ const EmptyAddress = "0000000000000000000000000000000000000000"
 type Blockchain struct {
 	CurrentDifficult uint64
 	CurrentRewards   uint64
-	TxPool           []transaction.BaseTransaction
+	TxPool           []transaction.Transaction
 	Blocks           []block.Block
 	signature        *sign.Signature
 }
@@ -22,7 +23,7 @@ func NewBlockchain(rewards uint64, difficulty uint64, creator string) (*Blockcha
 	var blockchain = Blockchain{
 		CurrentDifficult: difficulty,
 		CurrentRewards:   rewards,
-		TxPool:           []transaction.BaseTransaction{},
+		TxPool:           []transaction.Transaction{},
 		Blocks:           []block.Block{},
 	}
 
@@ -41,13 +42,14 @@ func NewBlockchain(rewards uint64, difficulty uint64, creator string) (*Blockcha
 	return &blockchain, nil
 }
 
-func (blockchain *Blockchain) createBaseTx(reciver string) (*transaction.BaseTransaction, error) {
-	var coinbaseTx, txErr = transaction.NewTransaction(EmptyAddress, reciver, int64(blockchain.CurrentRewards))
+func (blockchain *Blockchain) createBaseTx(recipient string) (transaction.Transaction, error) {
+	var coinbaseTx, txErr = transaction.CreateTransaction(coin_transfer.CoinTransfer, EmptyAddress, int64(blockchain.CurrentRewards), 0, map[string]any{
+		"recipient": recipient,
+	})
 	if txErr != nil {
 		return nil, txErr
 	}
-	coinbaseTx.CalcTxId()
-	var signErr = coinbaseTx.Sing(blockchain.signature)
+	var signErr = coinbaseTx.AddSing(blockchain.signature)
 	if signErr != nil {
 		return nil, signErr
 	}
@@ -75,7 +77,7 @@ func (blockchain *Blockchain) MineBlockFromPool(creator string) (*block.Block, e
 		return nil, txErr
 	}
 
-	block.AddTransaction(coinbaseTx)
+	block.AddTransaction(&coinbaseTx)
 	for _, tx := range blockchain.TxPool {
 		block.AddTransaction(&tx)
 	}
@@ -93,11 +95,11 @@ func (blockchain *Blockchain) MineBlockFromPool(creator string) (*block.Block, e
 }
 
 func (blockchain *Blockchain) deleteExecutedTxFromPool(block *block.Block) {
-	var newPool = []transaction.BaseTransaction{}
+	var newPool = []transaction.Transaction{}
 	for _, tx := range blockchain.TxPool {
 		var checkTx = &tx
 		for _, addedTx := range block.Transactions {
-			if tx.TxId == addedTx.TxId {
+			if tx.GetTxId() == addedTx.GetTxId() {
 				checkTx = nil
 				break
 			}
@@ -109,12 +111,12 @@ func (blockchain *Blockchain) deleteExecutedTxFromPool(block *block.Block) {
 	blockchain.TxPool = newPool
 }
 
-func (blockchain *Blockchain) AddTransactionToPool(tx *transaction.BaseTransaction) error {
+func (blockchain *Blockchain) AddTransactionToPool(tx transaction.Transaction) error {
 	var err = tx.Verify()
 	if err != nil {
 		return err
 	}
-	blockchain.TxPool = append(blockchain.TxPool, *tx)
+	blockchain.TxPool = append(blockchain.TxPool, tx)
 
 	return nil
 }

@@ -2,6 +2,7 @@ package block
 
 import (
 	"blockchain_demo/pkg/transaction"
+	"blockchain_demo/pkg/transaction/coin_transfer"
 	"testing"
 )
 
@@ -75,9 +76,10 @@ func TestMineHalfByteDifficult(t *testing.T) {
 
 func TestBlockWithTransactions(t *testing.T) {
 	block, _ := NewBlock(nil, 8)
-	tx, _ := transaction.NewTransaction("00112233445566778899aabbccddeeff00112233", "ffeeddccbbaa99887766554433221100ffeeddcc", 10)
-	tx.CalcTxId()
-	block.Transactions = append(block.Transactions, *tx)
+	tx, _ := transaction.CreateTransaction(coin_transfer.CoinTransfer, "00112233445566778899aabbccddeeff00112233", 10, 1, map[string]any{
+		"recipient": "ffeeddccbbaa99887766554433221100ffeeddcc",
+	})
+	block.Transactions = append(block.Transactions, tx)
 	hash, _ := block.CalcHash(0)
 	if len(hash) != 32 {
 		t.Errorf("Hash length = %d, want 32", len(hash))

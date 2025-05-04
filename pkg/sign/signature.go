@@ -15,7 +15,7 @@ type Signature struct {
 }
 
 // GenerateKeyPair generates a new ECDSA private and public key pair for elliptic.P256().
-// Returns the private key and the public key as hex string.
+// Returns the private key and the public key
 func GenerateKeyPair() (*Signature, error) {
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

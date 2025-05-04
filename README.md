@@ -8,6 +8,10 @@ This is a simple blockchain implementation in Go, demonstrating basic blockchain
 - `pkg/blockchain/` — Blockchain logic
 - `pkg/block/` — Block structure and mining
 - `pkg/transaction/` — Transaction structure and signing
+  - `coin_transfer/` — Coin transfer transaction type
+  - `contract_call/` — Smart contract call transaction type
+  - `contract_deploy/` — Smart contract deployment transaction type
+  - `token_transfer/` — Token transfer transaction type
 - `pkg/sign/` — Signature generation and verification
 - `pkg/utils/` — Utility functions
 
@@ -35,8 +39,18 @@ go run ./cmd/main.go
 
 - ECDSA key generation and signatures
 - Transaction creation, signing, and verification
+- Dynamic transaction type registry (реестр типов транзакций)
+- Serialization and deserialization of transactions
 - Block mining with adjustable difficulty
 - Blockchain validation
+- Support for multiple transaction types (coin transfer, contract call, contract deploy, token transfer)
+
+## Adding New Transaction Types
+
+1. Create a new subfolder in `pkg/transaction/` for your type.
+2. Implement the transaction struct and logic.
+3. Register the type in the package's `init()`.
+4. Import the package (with `_` if needed) where you use dynamic creation.
 
 ## License
 

@@ -4,6 +4,7 @@ import (
 	"blockchain_demo/pkg/block"
 	"blockchain_demo/pkg/sign"
 	"blockchain_demo/pkg/transaction"
+	"blockchain_demo/pkg/transaction/coin_transfer"
 	"encoding/hex"
 	"testing"
 )
@@ -41,9 +42,10 @@ func TestAddTransactionToPool(t *testing.T) {
 	creator := randomAddress()
 	bc, _ := NewBlockchain(50, 8, creator)
 	signature := generateTestKeys(t)
-	tx, _ := transaction.NewTransaction(creator, randomAddress(), 10)
-	tx.CalcTxId()
-	tx.Sing(signature)
+	tx, _ := transaction.CreateTransaction(coin_transfer.CoinTransfer,creator, 10, 1, map[string]any{
+		"recipient": randomAddress(),
+	})
+	tx.AddSing(signature)
 	err := bc.AddTransactionToPool(tx)
 	if err != nil {
 		t.Fatalf("AddTransactionToPool failed: %v", err)
@@ -57,9 +59,10 @@ func TestMineBlockFromPool(t *testing.T) {
 	creator := randomAddress()
 	bc, _ := NewBlockchain(50, 8, creator)
 	signature := generateTestKeys(t)
-	tx, _ := transaction.NewTransaction(creator, randomAddress(), 10)
-	tx.CalcTxId()
-	tx.Sing(signature)
+	tx, _ := transaction.CreateTransaction(coin_transfer.CoinTransfer,creator, 10, 1, map[string]any{
+		"recipient": randomAddress(),
+	})
+	tx.AddSing(signature)
 	bc.AddTransactionToPool(tx)
 	_, err := bc.MineBlockFromPool(creator)
 	if err != nil {
@@ -89,9 +92,10 @@ func TestVerifyBlockchain(t *testing.T) {
 	bc, _ := NewBlockchain(50, 8, creator)
 	signature := generateTestKeys(t)
 	for i := 0; i < 3; i++ {
-		tx, _ := transaction.NewTransaction(creator, randomAddress(), int64(i+1))
-		tx.CalcTxId()
-		tx.Sing(signature)
+		tx, _ := transaction.CreateTransaction(coin_transfer.CoinTransfer,creator, int64(i+1), 1, map[string]any{
+			"recipient": randomAddress(),
+		})
+		tx.AddSing(signature)
 		bc.AddTransactionToPool(tx)
 		bc.MineBlockFromPool(creator)
 	}

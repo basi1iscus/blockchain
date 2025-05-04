@@ -4,6 +4,7 @@ import (
 	"blockchain_demo/pkg/blockchain"
 	"blockchain_demo/pkg/sign"
 	"blockchain_demo/pkg/transaction"
+	"blockchain_demo/pkg/transaction/coin_transfer"
 	"fmt"
 	"math/rand"
 	"time"
@@ -27,9 +28,10 @@ func main() {
 		for range count {
 			senderInd := rnd.Intn(len(addresses))
 			reciverInd := rnd.Intn(len(addresses))
-			tx, _ := transaction.NewTransaction(addresses[senderInd], addresses[reciverInd], rnd.Int63n(1000))
-			tx.CalcTxId()
-			tx.Sing(signatures[senderInd])
+			tx, _ := transaction.CreateTransaction(coin_transfer.CoinTransfer, addresses[senderInd], rnd.Int63n(1000), rnd.Int63n(10), map[string]any{
+				"recipient": addresses[reciverInd],
+			})
+			tx.AddSing(signatures[senderInd])
 			bc.AddTransactionToPool(tx)
 		}
 

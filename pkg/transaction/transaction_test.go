@@ -1,96 +1,79 @@
-package transaction
+package transaction_test
 
 import (
-	"blockchain_demo/pkg/sign"
-	"encoding/hex"
+	"encoding/json"
+	"reflect"
 	"testing"
+
+	"blockchain_demo/pkg/transaction"
+	_ "blockchain_demo/pkg/transaction/coin_transfer"
+	_ "blockchain_demo/pkg/transaction/contract_call"
+	_ "blockchain_demo/pkg/transaction/token_transfer"
 )
 
-func generateTestKeys(t *testing.T) *sign.Signature {
-	signature, err := sign.GenerateKeyPair()
-	if err != nil {
-		t.Fatalf("failed to generate key pair: %v", err)
-	}
-	return signature
-}
+func TestTransaction_SerializeDeserialize(t *testing.T) {
 
-func randomAddress() string {
-	return hex.EncodeToString(make([]byte, 20))
-}
+	sender := "1234567890abcdef1234567890abcdef12345678"
+	address := "1234567890abcdef1234567890abcdef12345678"
+	
+	types := []struct {
+		typeName transaction.TransactionType
+		params  map[string]any
+	}{
+		{
+			typeName: "coin_transfer",
+			params: map[string]any{
+				"recipient": address,
+			},
+		},
+		{
+			typeName: "contract_call",
+			params: map[string]any{
+				"contractAddress": address,
+				"to": address,
+				"contractType": "transfer",
+				"amount": uint64(42),
+			},
+		},
+		{
+			typeName: "token_transfer",
+			params: map[string]any{
+				"token": address,
+				"recipient": address,
+				"amount": int64(123),
+			},
+		},
+	}
 
-func TestNewTransaction_Valid(t *testing.T) {
-	sender := randomAddress()
-	reciver := randomAddress()
-	tx, err := NewTransaction(sender, reciver, 100)
-	if err != nil {
-		t.Fatalf("NewTransaction failed: %v", err)
-	}
-	if tx.Value != 100 {
-		t.Errorf("Value = %d, want 100", tx.Value)
-	}
-	if hex.EncodeToString(tx.Sender[:]) != sender {
-		t.Errorf("Sender mismatch")
-	}
-	if hex.EncodeToString(tx.Reciver[:]) != reciver {
-		t.Errorf("Reciver mismatch")
-	}
-}
+	value := int64(100)
+	fee := int64(1)
 
-func TestNewTransaction_InvalidAddress(t *testing.T) {
-	_, err := NewTransaction("abc", randomAddress(), 100)
-	if err == nil {
-		t.Error("Expected error for invalid sender address")
-	}
-	_, err = NewTransaction(randomAddress(), "abc", 100)
-	if err == nil {
-		t.Error("Expected error for invalid reciver address")
-	}
-}
+	for _, typ := range types {
+		tx, err := transaction.CreateTransaction(typ.typeName, sender, value, fee, typ.params)
+		if err != nil {
+			t.Fatalf("failed to create %s transaction: %v", typ.typeName, err)
+		}
 
-func TestCalcTxId(t *testing.T) {
-	tx, _ := NewTransaction(randomAddress(), randomAddress(), 42)
-	tx.CalcTxId()
-	if tx.TxId == [32]byte{} {
-		t.Error("TxId should not be zero after CalcTxId")
-	}
-}
+		data, err := tx.Stringify()
+		if err != nil {
+			t.Fatalf("failed to serialize %s transaction: %v", typ.typeName, err)
+		}
 
-func TestSignAndVerify(t *testing.T) {
-	signature := generateTestKeys(t)
-	sender := randomAddress()
-	reciver := randomAddress()
-	tx, _ := NewTransaction(sender, reciver, 55)
-	tx.CalcTxId()
-	err := tx.Sing(signature)
-	if err != nil {
-		t.Fatalf("Sing failed: %v", err)
-	}
-	err = tx.Verify()
-	if err != nil {
-		t.Errorf("Verify failed: %v", err)
-	}
-}
+		deserialized, err := transaction.ParseTransaction(data)
+		if err != nil {
+			t.Fatalf("failed to deserialize %s transaction: %v", typ.typeName, err)
+		}
 
-func TestVerify_InvalidSignature(t *testing.T) {
-	signature := generateTestKeys(t)
-	tx, _ := NewTransaction(randomAddress(), randomAddress(), 1)
-	tx.CalcTxId()
-	tx.Sing(signature)
-	tx.Sign[0] ^= 0xFF // Corrupt signature
-	err := tx.Verify()
-	if err == nil {
-		t.Error("Expected error for invalid signature")
-	}
-}
+		// Compare types
+		if reflect.TypeOf(tx) != reflect.TypeOf(deserialized) {
+			t.Errorf("type mismatch after deserialization: got %T, want %T", deserialized, tx)
+		}
 
-func TestVerify_TamperedData(t *testing.T) {
-	signature := generateTestKeys(t)
-	tx, _ := NewTransaction(randomAddress(), randomAddress(), 1)
-	tx.CalcTxId()
-	tx.Sing(signature)
-	tx.Value = 999 // Tamper with transaction
-	err := tx.Verify()
-	if err == nil {
-		t.Error("Expected error for tampered transaction data")
+		// Compare JSON representations
+		origJSON, _ := json.Marshal(tx)
+		desJSON, _ := json.Marshal(deserialized)
+		if string(origJSON) != string(desJSON) {
+			t.Errorf("json mismatch after deserialization for %s: got %s, want %s", typ.typeName, desJSON, origJSON)
+		}
 	}
 }

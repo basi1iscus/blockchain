@@ -16,7 +16,7 @@ type Block struct {
 	Prev         [32]byte
 	Nonce        uint64
 	Difficulty   uint64
-	Transactions []transaction.BaseTransaction
+	Transactions []transaction.Transaction
 }
 
 func NewBlock(prevBlock *Block, difficulty uint64) (*Block, error) {
@@ -33,7 +33,7 @@ func NewBlock(prevBlock *Block, difficulty uint64) (*Block, error) {
 		Prev:         prev,
 		Nonce:        0,
 		Difficulty:   difficulty,
-		Transactions: []transaction.BaseTransaction{},
+		Transactions: []transaction.Transaction{},
 	}
 
 	return &block, nil
@@ -42,7 +42,8 @@ func NewBlock(prevBlock *Block, difficulty uint64) (*Block, error) {
 func (block *Block) CalcHash(nonce uint64) ([]byte, error) {
 	var txHashes []byte
 	for _, tx := range block.Transactions {
-		txHashes = append(txHashes, tx.TxId[:]...)
+		var txHash = tx.GetTxId()
+		txHashes = append(txHashes, txHash[:]...)
 	}
 	var hash, err = utils.GetHash(block.Index, block.Time, block.Prev[:], nonce, txHashes)
 	if err != nil {
@@ -64,12 +65,12 @@ func miner(block *Block, from uint64, count uint64, ch chan uint64, ctx context.
 		buf = append(buf, (255 << bits))
 	}
 
-onceSearch:
+nonceSearch:
 	for nonce := from; nonce < from+count && ctx.Err() == nil; nonce++ {
 		var hash, _ = block.CalcHash(nonce)
 		for n, v := range buf {
 			if hash[n]&v != 0 {
-				continue onceSearch
+				continue nonceSearch
 			}
 		}
 		ch <- nonce
@@ -117,7 +118,7 @@ func (block *Block) Verify() error {
 	return nil
 }
 
-func (block *Block) AddTransaction(tx *transaction.BaseTransaction) error {
+func (block *Block) AddTransaction(tx *transaction.Transaction) error {
 	block.Transactions = append(block.Transactions, *tx)
 
 	return nil

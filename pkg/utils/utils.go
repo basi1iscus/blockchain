@@ -3,6 +3,7 @@ package utils
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 )
 
@@ -44,4 +45,49 @@ func GetHash(values ...any) ([]byte, error) {
 	}
 	hash := hasher.Sum(nil)
 	return hash, nil
+}
+
+func GetBytesFromHexParam(params map[string]any, field string) ([]byte, error) {
+	value, exists := params[field]
+	if !exists {
+		return nil, fmt.Errorf("%s not exists in params", field)
+	}
+	valueStr, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("%s is not a hex string", field)
+	}
+	var valueBytes, tokenErr = hex.DecodeString(valueStr)
+	if tokenErr != nil {
+		return nil, fmt.Errorf("unsupported %s: %s", field, valueStr)
+	}
+	return valueBytes, nil
+}
+
+func GetInt64FromParam(params map[string]any, field string) (uint64, error) {
+	value, exists := params[field]
+	if !exists {
+		return 0, fmt.Errorf("%s not exists in params", field)
+	}
+	valueInt, ok := value.(uint64)
+	if !ok {
+		return 0, fmt.Errorf("%s is not a number", field)
+	}
+	return valueInt, nil
+}
+
+func GetEnumValueFromParam[T any](params map[string]any, field string, isValid func(s string) (T, bool)) (T, error) {
+	var zeroValue T
+	value, exists := params[field]
+	if !exists {
+		return zeroValue, fmt.Errorf("%s not exists in params", "contractType")
+	}
+	valueStr, ok := value.(string)
+	if !ok {
+		return zeroValue, fmt.Errorf("contractType must be a string")
+	}
+	enumValue, ok := isValid(valueStr)
+	if !ok {
+		return zeroValue, fmt.Errorf("contractType must be a string")
+	}
+	return enumValue, nil
 }
