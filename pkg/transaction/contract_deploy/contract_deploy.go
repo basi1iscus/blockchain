@@ -12,13 +12,13 @@ import (
 const ContractDeploy transaction.TransactionType = "contract_deploy"
 
 type InitParams struct {
-	Owner          []byte `json:"owner" json-hex:"true"`
+	Owner          transaction.HexBytes `json:"owner" json-hex:"true"`
 	InitialSupplay uint64 `json:"initialSupply"`
 }
 
 type ContractDeployTransaction struct {
 	transaction.BaseTransaction
-	Code       []byte `json:"code" json-hex:"true"`
+	Code       transaction.HexBytes `json:"code" json-hex:"true"`
 	InitParams InitParams
 }
 

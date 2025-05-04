@@ -13,8 +13,8 @@ const TokenTransfer transaction.TransactionType = "token_transfer"
 
 type CoinTransferTransaction struct {
 	transaction.BaseTransaction
-	Recipient    []byte `json:"recipient" json-hex:"true"`
-	TokenAddress []byte `json:"tokenAddress" json-hex:"true"`
+	Recipient    transaction.HexBytes `json:"recipient" json-hex:"true"`
+	TokenAddress transaction.HexBytes `json:"tokenAddress" json-hex:"true"`
 }
 
 func NewTransaction(sender string, value int64, fee int64, params map[string]any) (*CoinTransferTransaction, error) {

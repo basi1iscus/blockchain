@@ -2,11 +2,51 @@ package transaction
 
 import (
 	"blockchain_demo/pkg/sign"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 )
 
 type TransactionType string
+
+type Hash [32]byte
+
+func (b Hash) MarshalJSON() ([]byte, error) {
+    return []byte(`"` + hex.EncodeToString(b[:]) + `"`), nil
+}
+
+func (b *Hash) UnmarshalJSON(data []byte) error {
+    s, err := strconv.Unquote(string(data))
+    if err != nil {
+        return err
+    }
+    decoded, err := hex.DecodeString(s)
+    if err != nil {
+        return err
+    }
+    *b = Hash(decoded)
+    return nil
+}
+
+type HexBytes []byte
+
+func (b HexBytes) MarshalJSON() ([]byte, error) {
+    return []byte(`"` + hex.EncodeToString(b[:]) + `"`), nil
+}
+
+func (b *HexBytes) UnmarshalJSON(data []byte) error {
+    s, err := strconv.Unquote(string(data))
+    if err != nil {
+        return err
+    }
+    decoded, err := hex.DecodeString(s)
+    if err != nil {
+        return err
+    }
+    *b = decoded
+    return nil
+}
 
 type Transaction interface {
 	GetTxId() [32]byte
@@ -28,13 +68,13 @@ var registry = make(map[TransactionType]func() Transaction)
 // Base (common) transaction struct
 type BaseTransaction struct {
 	TxType    TransactionType `json:"type"`
-	TxId      [32]byte        `json:"id" json-hex:"true"`
+	TxId      Hash        	  `json:"id" json-hex:"true"`
 	Value     int64           `json:"value"`
 	Fee       int64           `json:"fee"`
 	Timestamp int64           `json:"timestamp"`
-	Sender    []byte          `json:"sender" json-hex:"true"`
-	Sign      []byte          `json:"sign" json-hex:"true"`
-	PublicKey []byte          `json:"public_key" json-hex:"true"`
+	Sender    HexBytes          `json:"sender" json-hex:"true"`
+	Sign      HexBytes          `json:"sign" json-hex:"true"`
+	PublicKey HexBytes          `json:"public_key" json-hex:"true"`
 }
 
 func (tx *BaseTransaction) GetTxId() [32]byte {

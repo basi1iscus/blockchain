@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"blockchain_demo/pkg/transaction"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -27,6 +28,8 @@ func bytes(value any) ([]byte, error) {
 		return buf, nil
 	case []byte:
 		return v, nil
+	case transaction.HexBytes:
+		return []byte(v), nil
 	case string:
 		return []byte(v), nil
 	}

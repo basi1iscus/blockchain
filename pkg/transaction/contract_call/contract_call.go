@@ -12,14 +12,14 @@ import (
 const ContractCall transaction.TransactionType = "contract_call"
 
 type ContractCallParams struct {
-	To     []byte `json:"contractAddress" json-hex:"true"`
-	Amount uint64 `json:"amount"`
+	To     transaction.HexBytes `json:"contractAddress" json-hex:"true"`
+	Amount uint64 				`json:"amount"`
 }
 
 type ContractCallTransaction struct {
 	transaction.BaseTransaction
-	ContractAddress []byte       `json:"contractAddress" json-hex:"true"`
-	ContractType    ContractType `json:"method"`
+	ContractAddress transaction.HexBytes       `json:"contractAddress" json-hex:"true"`
+	ContractType    ContractType 			   `json:"method"`
 	InitParams      ContractCallParams
 }
 

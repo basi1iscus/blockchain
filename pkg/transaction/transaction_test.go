@@ -2,6 +2,7 @@ package transaction_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -55,6 +56,7 @@ func TestTransaction_SerializeDeserialize(t *testing.T) {
 		}
 
 		data, err := tx.Stringify()
+		fmt.Printf(" %s\n", string(data))
 		if err != nil {
 			t.Fatalf("failed to serialize %s transaction: %v", typ.typeName, err)
 		}
