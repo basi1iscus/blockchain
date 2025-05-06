@@ -80,7 +80,7 @@ func TestBlockWithTransactions(t *testing.T) {
 		"recipient": "ffeeddccbbaa99887766554433221100ffeeddcc",
 	})
 	block.Transactions = append(block.Transactions, tx)
-	hash, _ := block.CalcHash(0)
+	hash, _ := block.Mine(0)
 	if len(hash) != 32 {
 		t.Errorf("Hash length = %d, want 32", len(hash))
 	}

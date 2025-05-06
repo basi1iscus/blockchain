@@ -1,6 +1,7 @@
 package block
 
 import (
+	"blockchain_demo/pkg/merkle"
 	"blockchain_demo/pkg/transaction"
 	"blockchain_demo/pkg/utils"
 	"context"
@@ -16,6 +17,7 @@ type Block struct {
 	Prev         [32]byte
 	Nonce        uint64
 	Difficulty   uint64
+	MerkleRoot   [32]byte
 	Transactions []transaction.Transaction
 }
 
@@ -33,6 +35,7 @@ func NewBlock(prevBlock *Block, difficulty uint64) (*Block, error) {
 		Prev:         prev,
 		Nonce:        0,
 		Difficulty:   difficulty,
+		MerkleRoot:   [32]byte{},
 		Transactions: []transaction.Transaction{},
 	}
 
@@ -40,12 +43,7 @@ func NewBlock(prevBlock *Block, difficulty uint64) (*Block, error) {
 }
 
 func (block *Block) CalcHash(nonce uint64) ([]byte, error) {
-	var txHashes []byte
-	for _, tx := range block.Transactions {
-		var txHash = tx.GetTxId()
-		txHashes = append(txHashes, txHash[:]...)
-	}
-	var hash, err = utils.GetHash(block.Index, block.Time, block.Prev[:], nonce, txHashes)
+	var hash, err = utils.GetHash(block.Index, block.Time, block.Prev[:], nonce, block.MerkleRoot[:])
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +76,26 @@ nonceSearch:
 	}
 }
 
+func (block *Block) calcMerkleRoot() (*transaction.Hash, error) {
+	var txHashes []transaction.Hash
+	for _, tx := range block.Transactions {
+		var txHash = tx.GetTxId()
+		txHashes = append(txHashes, txHash)
+	}
+	var tree, err = merkle.CreateMerkeTree(txHashes)
+	if err != nil {
+		return nil, fmt.Errorf("error creating Merkle Tree: %s", err)
+	}
+	root := tree.Root()
+	return &root, nil
+}
+
 func (block *Block) Mine(threads uint64) ([]byte, error) {
+	root, err := block.calcMerkleRoot()
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate Merkle root: %w", err)
+	}
+	block.MerkleRoot = *root
 	channel := make(chan uint64)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -91,9 +108,9 @@ func (block *Block) Mine(threads uint64) ([]byte, error) {
 		go miner(block, count*th, count, channel, ctx)
 	}
 	var nonce = <-channel
-	var hash, err = block.CalcHash(nonce)
-	if err != nil {
-		return nil, err
+	var hash, errHash = block.CalcHash(nonce)
+	if errHash != nil {
+		return nil, errHash
 	}
 	block.Nonce = nonce
 	block.Hash = [32]byte(hash)
@@ -114,7 +131,13 @@ func (block *Block) Verify() error {
 			return fmt.Errorf("%s", err.Error())
 		}
 	}
-
+	root, err := block.calcMerkleRoot()
+	if err != nil {
+		return err
+	}
+	if *root != block.MerkleRoot {
+		return fmt.Errorf("merkle root is invalid: %x", *root)
+	}
 	return nil
 }
 
@@ -125,6 +148,6 @@ func (block *Block) AddTransaction(tx *transaction.Transaction) error {
 }
 
 func (b *Block) String() string {
-	return fmt.Sprintf("Block{Index: %d, Time: %d, Hash: %x, Prev: %x, Nonce: %d, Difficulty: %d, TxCount: %d}",
-		b.Index, b.Time, b.Hash, b.Prev, b.Nonce, b.Difficulty, len(b.Transactions))
+	return fmt.Sprintf("Block{Index: %d, Time: %d, Hash: %x, Merkle root %x,  Prev: %x, Nonce: %d, Difficulty: %d, TxCount: %d}",
+		b.Index, b.Time, b.Hash, b.MerkleRoot, b.Prev, b.Nonce, b.Difficulty, len(b.Transactions))
 }
