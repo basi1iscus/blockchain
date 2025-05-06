@@ -7,6 +7,7 @@ This is a simple blockchain implementation in Go, demonstrating basic blockchain
 - `cmd/main.go` — Example entry point for running the blockchain demo
 - `pkg/blockchain/` — Blockchain logic
 - `pkg/block/` — Block structure and mining
+- `pkg/merkle/` — Merkle tree and root calculation
 - `pkg/transaction/` — Transaction structure and signing
   - `coin_transfer/` — Coin transfer transaction type
   - `contract_call/` — Smart contract call transaction type
@@ -43,6 +44,7 @@ go run ./cmd/main.go
 - Serialization and deserialization of transactions
 - Block mining with adjustable difficulty
 - Blockchain validation
+- Merkle tree and root calculation for block transactions
 - Support for multiple transaction types (coin transfer, contract call, contract deploy, token transfer)
 
 ## Adding New Transaction Types
