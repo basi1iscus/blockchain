@@ -1,6 +1,7 @@
 package contract_call
 
 import (
+	"blockchain_demo/pkg/sign"
 	"blockchain_demo/pkg/transaction"
 	"blockchain_demo/pkg/utils"
 	"encoding/hex"
@@ -103,7 +104,7 @@ func (tx *ContractCallTransaction) CalcHash() ([]byte, error) {
 	return hash, nil
 }
 
-func (tx *ContractCallTransaction) Verify() error {
+func (tx *ContractCallTransaction) Verify(signer sign.Signer) error {
 	var hash, hashErr = tx.CalcHash()
 	if hashErr != nil {
 		return fmt.Errorf("unable to calculate hash")
@@ -111,7 +112,7 @@ func (tx *ContractCallTransaction) Verify() error {
 	if [32]byte(hash) != tx.TxId {
 		return fmt.Errorf("TxId is invalid")
 	}
-	var err = tx.BaseTransaction.Verify()
+	var err = tx.BaseTransaction.Verify(signer)
 	if err != nil {
 		return fmt.Errorf("TxId signature is invalid")
 	}

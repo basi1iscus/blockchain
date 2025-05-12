@@ -1,4 +1,4 @@
-package sign
+package sign_ecdsa
 
 import (
 	"crypto/sha256"
@@ -6,12 +6,13 @@ import (
 )
 
 func TestGenerateKeyPair(t *testing.T) {
-	signature, err := GenerateKeyPair()
+	signer := EcdsaSigner{}
+	signature, err := signer.GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("GenerateKeyPair failed: %v", err)
 	}
 	if len(signature.PrivateKey) != 121 {
-		t.Errorf("Private key length = %d, want 64", len(signature.PrivateKey))
+		t.Errorf("Private key length = %d, want 121", len(signature.PrivateKey))
 	}
 	if len(signature.PublicKey) != 91 {
 		t.Errorf("Public key length = %d, want 91", len(signature.PublicKey))
@@ -20,17 +21,18 @@ func TestGenerateKeyPair(t *testing.T) {
 }
 
 func TestSignAndVerify(t *testing.T) {
-	signature, err := GenerateKeyPair()
+	signer := EcdsaSigner{}
+	signature, err := signer.GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("GenerateKeyPair failed: %v", err)
 	}
 	msg := []byte("test message")
 	hash := sha256.Sum256(msg)
-	sig, err := Sign(hash[:], signature.PrivateKey)
+	sig, err := signer.Sign(hash[:], signature.PrivateKey)
 	if err != nil {
 		t.Fatalf("Sing failed: %v", err)
 	}
-	valid, err := Verify(hash[:], sig, signature.PublicKey)
+	valid, err := signer.Verify(hash[:], sig, signature.PublicKey)
 	if err != nil {
 		t.Fatalf("Sign (verify) failed: %v", err)
 	}
@@ -40,19 +42,20 @@ func TestSignAndVerify(t *testing.T) {
 }
 
 func TestVerifyInvalidSignature(t *testing.T) {
-	signature, err := GenerateKeyPair()
+	signer := EcdsaSigner{}
+	signature, err := signer.GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("GenerateKeyPair failed: %v", err)
 	}
 	msg := []byte("test message")
 	hash := sha256.Sum256(msg)
-	sig, err := Sign(hash[:], signature.PrivateKey)
+	sig, err := signer.Sign(hash[:], signature.PrivateKey)
 	if err != nil {
 		t.Fatalf("Sing failed: %v", err)
 	}
 	// Corrupt the signature
 	sig[0] ^= 0xFF
-	valid, err := Verify(hash[:], sig, signature.PublicKey)
+	valid, err := signer.Verify(hash[:], sig, signature.PublicKey)
 	if err != nil {
 		t.Fatalf("Sign (verify) failed: %v", err)
 	}
@@ -62,21 +65,22 @@ func TestVerifyInvalidSignature(t *testing.T) {
 }
 
 func TestVerifyWithWrongKey(t *testing.T) {
-	signature1, err := GenerateKeyPair()
+	signer := EcdsaSigner{}
+	signature1, err := signer.GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("GenerateKeyPair failed: %v", err)
 	}
-	signature2, err := GenerateKeyPair()
+	signature2, err := signer.GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("GenerateKeyPair failed: %v", err)
 	}
 	msg := []byte("test message")
 	hash := sha256.Sum256(msg)
-	sig, err := Sign(hash[:], signature1.PrivateKey)
+	sig, err := signer.Sign(hash[:], signature1.PrivateKey)
 	if err != nil {
 		t.Fatalf("Sing failed: %v", err)
 	}
-	valid, err := Verify(hash[:], sig, signature2.PublicKey)
+	valid, err := signer.Verify(hash[:], sig, signature2.PublicKey)
 	if err != nil {
 		t.Fatalf("Sign (verify) failed: %v", err)
 	}

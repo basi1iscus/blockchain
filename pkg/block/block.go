@@ -2,6 +2,7 @@ package block
 
 import (
 	"blockchain_demo/pkg/merkle"
+	"blockchain_demo/pkg/sign"
 	"blockchain_demo/pkg/transaction"
 	"blockchain_demo/pkg/utils"
 	"context"
@@ -117,7 +118,7 @@ func (block *Block) Mine(threads uint64) ([]byte, error) {
 	return hash, nil
 }
 
-func (block *Block) Verify() error {
+func (block *Block) Verify(signer sign.Signer) error {
 	var hash, err = block.CalcHash(block.Nonce)
 	if err != nil {
 		return err
@@ -126,7 +127,7 @@ func (block *Block) Verify() error {
 		return fmt.Errorf("Block hash is invalid")
 	}
 	for _, tx := range block.Transactions {
-		var err = tx.Verify()
+		var err = tx.Verify(signer)
 		if err != nil {
 			return fmt.Errorf("%s", err.Error())
 		}

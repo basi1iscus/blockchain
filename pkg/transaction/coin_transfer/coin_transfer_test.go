@@ -2,16 +2,18 @@ package coin_transfer
 
 import (
 	"blockchain_demo/pkg/sign"
+	"blockchain_demo/pkg/sign/sign_ecdsa"
 	"encoding/hex"
 	"testing"
 )
 
-func generateTestKeys(t *testing.T) *sign.Signature {
-	signature, err := sign.GenerateKeyPair()
+func generateTestKeys(t *testing.T) (sign.Signer, *sign.SignatureKeys) {
+	signer := sign_ecdsa.EcdsaSigner{}
+	signature, err := signer.GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
 	}
-	return signature
+	return signer, signature
 }
 
 func randomAddress() string {
@@ -63,43 +65,43 @@ func TestCalcTxId(t *testing.T) {
 }
 
 func TestSignAndVerify(t *testing.T) {
-	signature := generateTestKeys(t)
+	signer, signature := generateTestKeys(t)
 	sender := randomAddress()
 	reciver := randomAddress()
 	tx, _ := NewTransaction(sender, 55, 1, map[string]any{
 		"recipient": reciver,
 	})
-	err := tx.AddSing(signature)
+	err := tx.AddSing(signer, signature)
 	if err != nil {
 		t.Fatalf("Sing failed: %v", err)
 	}
-	err = tx.Verify()
+	err = tx.Verify(signer)
 	if err != nil {
 		t.Errorf("Verify failed: %v", err)
 	}
 }
 
 func TestVerify_InvalidSignature(t *testing.T) {
-	signature := generateTestKeys(t)
+	signer, signature := generateTestKeys(t)
 	tx, _ := NewTransaction(randomAddress(), 1, 0, map[string]any{
 		"recipient": randomAddress(),
 	})
-	tx.AddSing(signature)
+	tx.AddSing(signer, signature)
 	tx.Sign[0] ^= 0xFF // Corrupt signature
-	err := tx.Verify()
+	err := tx.Verify(signer)
 	if err == nil {
 		t.Error("Expected error for invalid signature")
 	}
 }
 
 func TestVerify_TamperedData(t *testing.T) {
-	signature := generateTestKeys(t)
+	signer, signature := generateTestKeys(t)
 	tx, _ := NewTransaction(randomAddress(), 1, 0, map[string]any{
 		"recipient": randomAddress(),
 	})
-	tx.AddSing(signature)
+	tx.AddSing(signer, signature)
 	tx.Value = 999 // Tamper with transaction
-	err := tx.Verify()
+	err := tx.Verify(signer)
 	if err == nil {
 		t.Error("Expected error for tampered transaction data")
 	}

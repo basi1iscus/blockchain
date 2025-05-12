@@ -53,8 +53,8 @@ type Transaction interface {
 	GetValue() int64
 	GetTime() int64
 	GetSender() []byte
-	AddSing(signature *sign.Signature) error
-	Verify() error
+	AddSing(signer sign.Signer, signature *sign.SignatureKeys) error
+	Verify(signer sign.Signer) error
 	GetDataForHash() []any
 	CalcHash() ([]byte, error)
 	Stringify() ([]byte, error)
@@ -100,8 +100,8 @@ func (tx *BaseTransaction) GetDataForHash() []any {
 	return data
 }
 
-func (tx *BaseTransaction) AddSing(signature *sign.Signature) error {
-	var signed, err = sign.Sign(tx.TxId[:], signature.PrivateKey)
+func (tx *BaseTransaction) AddSing(signer sign.Signer, signature *sign.SignatureKeys) error {
+	var signed, err = signer.Sign(tx.TxId[:], signature.PrivateKey)
 	if err != nil {
 		return err
 	}
@@ -111,8 +111,8 @@ func (tx *BaseTransaction) AddSing(signature *sign.Signature) error {
 	return nil
 }
 
-func (tx *BaseTransaction) Verify() error {
-	var isValid, err = sign.Verify(tx.TxId[:], tx.Sign[:], tx.PublicKey[:])
+func (tx *BaseTransaction) Verify(signer sign.Signer) error {
+	var isValid, err = signer.Verify(tx.TxId[:], tx.Sign[:], tx.PublicKey[:])
 	if err != nil || !isValid {
 		return fmt.Errorf("TxId signature is invalid")
 	}

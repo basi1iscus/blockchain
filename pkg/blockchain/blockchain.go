@@ -16,18 +16,20 @@ type Blockchain struct {
 	CurrentRewards   uint64
 	TxPool           []transaction.Transaction
 	Blocks           []block.Block
-	signature        *sign.Signature
+	signature        *sign.SignatureKeys
+	signer			 sign.Signer
 }
 
-func NewBlockchain(rewards uint64, difficulty uint64, creator string) (*Blockchain, error) {
+func NewBlockchain(rewards uint64, difficulty uint64, creator string, signer sign.Signer) (*Blockchain, error) {
 	var blockchain = Blockchain{
 		CurrentDifficult: difficulty,
 		CurrentRewards:   rewards,
 		TxPool:           []transaction.Transaction{},
 		Blocks:           []block.Block{},
+		signer: 		  signer,
 	}
 
-	var signature, errSign = sign.GenerateKeyPair()
+	var signature, errSign = blockchain.signer.GenerateKeyPair()
 	if errSign != nil {
 		return nil, errSign
 	}
@@ -49,12 +51,12 @@ func (blockchain *Blockchain) createBaseTx(recipient string) (transaction.Transa
 	if txErr != nil {
 		return nil, txErr
 	}
-	var signErr = coinbaseTx.AddSing(blockchain.signature)
+	var signErr = coinbaseTx.AddSing(blockchain.signer, blockchain.signature)
 	if signErr != nil {
 		return nil, signErr
 	}
 
-	var verifyErr = coinbaseTx.Verify()
+	var verifyErr = coinbaseTx.Verify(blockchain.signer)
 	if verifyErr != nil {
 		return nil, verifyErr
 	}
@@ -112,7 +114,7 @@ func (blockchain *Blockchain) deleteExecutedTxFromPool(block *block.Block) {
 }
 
 func (blockchain *Blockchain) AddTransactionToPool(tx transaction.Transaction) error {
-	var err = tx.Verify()
+	var err = tx.Verify(blockchain.signer)
 	if err != nil {
 		return err
 	}
@@ -122,7 +124,7 @@ func (blockchain *Blockchain) AddTransactionToPool(tx transaction.Transaction) e
 }
 
 func (blockchain *Blockchain) AddBlock(block *block.Block) error {
-	var err = block.Verify()
+	var err = block.Verify(blockchain.signer)
 	if err != nil {
 		return err
 	}
@@ -139,7 +141,7 @@ func (blockchain *Blockchain) Verify(depth int) error {
 				return fmt.Errorf("block %d: has incorrect previos hash", blockchain.Blocks[i].Index)
 			}
 		}
-		var err = blockchain.Blocks[i].Verify()
+		var err = blockchain.Blocks[i].Verify(blockchain.signer)
 		if err != nil {
 			return fmt.Errorf("block %d: %s", blockchain.Blocks[i].Index, err.Error())
 		}
