@@ -71,9 +71,30 @@ func GetInt64FromParam(params map[string]any, field string) (uint64, error) {
 	if !exists {
 		return 0, fmt.Errorf("%s not exists in params", field)
 	}
-	valueInt, ok := value.(uint64)
-	if !ok {
-		return 0, fmt.Errorf("%s is not a number", field)
+	var valueInt uint64
+	switch v := value.(type) {
+	case int:
+		valueInt = uint64(v)
+	case int8:
+		valueInt = uint64(v)
+	case int16:
+		valueInt = uint64(v)
+	case int32:
+		valueInt = uint64(v)
+	case int64:
+		valueInt = uint64(v)
+	case uint:
+		valueInt = uint64(v)
+	case uint8:
+		valueInt = uint64(v)
+	case uint16:
+		valueInt = uint64(v)
+	case uint32:
+		valueInt = uint64(v)
+	case uint64:
+		valueInt = v
+	default:
+		return 0, fmt.Errorf("%s is not an integer type", field)
 	}
 	return valueInt, nil
 }

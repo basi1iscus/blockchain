@@ -12,6 +12,7 @@ import (
 
 const CoinTransfer transaction.TransactionType = "coin_transfer"
 
+var EmptyAddress = [20]byte{}
 type CoinTransferTransaction struct {
 	transaction.BaseTransaction
 	Recipient transaction.HexBytes `json:"recipient" json-hex:"true"`

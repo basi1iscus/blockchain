@@ -49,8 +49,10 @@ func (b *HexBytes) UnmarshalJSON(data []byte) error {
 }
 
 type Transaction interface {
+	GetTxType() TransactionType
 	GetTxId() [32]byte
 	GetValue() int64
+	GetFee() int64
 	GetTime() int64
 	GetSender() []byte
 	AddSing(signer sign.Signer, signature *sign.SignatureKeys) error
@@ -77,11 +79,17 @@ type BaseTransaction struct {
 	PublicKey HexBytes          `json:"public_key" json-hex:"true"`
 }
 
+func (tx *BaseTransaction) GetTxType() TransactionType {
+	return tx.TxType
+}
 func (tx *BaseTransaction) GetTxId() [32]byte {
 	return tx.TxId
 }
 func (tx *BaseTransaction) GetValue() int64 {
 	return tx.Value
+}
+func (tx *BaseTransaction) GetFee() int64 {
+	return tx.Fee
 }
 func (tx *BaseTransaction) GetTime() int64 {
 	return tx.Timestamp

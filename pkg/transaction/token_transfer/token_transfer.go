@@ -12,13 +12,13 @@ import (
 
 const TokenTransfer transaction.TransactionType = "token_transfer"
 
-type CoinTransferTransaction struct {
+type TokenTransferTransaction struct {
 	transaction.BaseTransaction
 	Recipient    transaction.HexBytes `json:"recipient" json-hex:"true"`
 	TokenAddress transaction.HexBytes `json:"tokenAddress" json-hex:"true"`
 }
 
-func NewTransaction(sender string, value int64, fee int64, params map[string]any) (*CoinTransferTransaction, error) {
+func NewTransaction(sender string, value int64, fee int64, params map[string]any) (*TokenTransferTransaction, error) {
 	var senderBytes, senderErr = hex.DecodeString(sender)
 	if senderErr != nil {
 		return nil, fmt.Errorf("unsupported sender format: %s", sender)
@@ -33,7 +33,7 @@ func NewTransaction(sender string, value int64, fee int64, params map[string]any
 		return nil, tokentErr
 	}
 
-	var tx = CoinTransferTransaction{
+	var tx = TokenTransferTransaction{
 		BaseTransaction: transaction.BaseTransaction{
 			TxType:    TokenTransfer,
 			TxId:      [32]byte{},
@@ -55,7 +55,7 @@ func NewTransaction(sender string, value int64, fee int64, params map[string]any
 	return &tx, nil
 }
 
-func (tx *CoinTransferTransaction) GetDataForHash() []any {
+func (tx *TokenTransferTransaction) GetDataForHash() []any {
 	var data = tx.BaseTransaction.GetDataForHash()
 	data = append(data, tx.Recipient)
 	data = append(data, tx.TokenAddress)
@@ -63,7 +63,7 @@ func (tx *CoinTransferTransaction) GetDataForHash() []any {
 	return data
 }
 
-func (tx *CoinTransferTransaction) CalcHash() ([]byte, error) {
+func (tx *TokenTransferTransaction) CalcHash() ([]byte, error) {
 	var hash, err = utils.GetHash(tx.GetDataForHash()...)
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func (tx *CoinTransferTransaction) CalcHash() ([]byte, error) {
 	return hash, nil
 }
 
-func (tx *CoinTransferTransaction) Verify(signer sign.Signer) error {
+func (tx *TokenTransferTransaction) Verify(signer sign.Signer) error {
 	var hash, hashErr = tx.CalcHash()
 	if hashErr != nil {
 		return fmt.Errorf("unable to calculate hash")
@@ -87,12 +87,12 @@ func (tx *CoinTransferTransaction) Verify(signer sign.Signer) error {
 	return nil
 }
 
-func (tx *CoinTransferTransaction) String() string {
+func (tx *TokenTransferTransaction) String() string {
 	return fmt.Sprintf("Transaction{TxId: %x, Sender: %x, Recipient: %x, Value: %d, Time: %d}",
 		tx.TxId, tx.Sender, tx.Recipient, tx.Value, tx.Timestamp)
 }
 
-func (tx *CoinTransferTransaction) Stringify() ([]byte, error) {
+func (tx *TokenTransferTransaction) Stringify() ([]byte, error) {
 	var data, err = json.Marshal(tx)
 	if err != nil {
 		return nil, err
@@ -105,6 +105,6 @@ func init() {
 	transaction.RegisterTransactionType(TokenTransfer, func(sender string, value int64, fee int64, params map[string]any) (transaction.Transaction, error) {
 		return NewTransaction(sender, value, fee, params)
 	}, func() transaction.Transaction {
-		return &CoinTransferTransaction{}
+		return &TokenTransferTransaction{}
 	})
 }

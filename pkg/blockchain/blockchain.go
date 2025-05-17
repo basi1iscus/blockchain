@@ -1,10 +1,12 @@
 package blockchain
 
 import (
+	"blockchain_demo/pkg/ballance_storage"
 	"blockchain_demo/pkg/block"
 	"blockchain_demo/pkg/sign"
 	"blockchain_demo/pkg/transaction"
 	"blockchain_demo/pkg/transaction/coin_transfer"
+	"blockchain_demo/pkg/transaction_processor"
 	"fmt"
 	"strings"
 )
@@ -12,21 +14,29 @@ import (
 const EmptyAddress = "0000000000000000000000000000000000000000"
 
 type Blockchain struct {
-	CurrentDifficult uint64
+	CurrentDifficulty uint64
 	CurrentRewards   uint64
-	TxPool           []transaction.Transaction
-	Blocks           []block.Block
+	txPool           []transaction.Transaction
+	blocks           []block.Block
 	signature        *sign.SignatureKeys
 	signer			 sign.Signer
+	txProcessor      transaction_processor.TransactionProcessor
+	storage      	 ballance_storage.BallanceStorage
 }
 
-func NewBlockchain(rewards uint64, difficulty uint64, creator string, signer sign.Signer) (*Blockchain, error) {
+func NewBlockchain(rewards uint64, difficulty uint64, creator string, signer sign.Signer, storage ballance_storage.BallanceStorage, txTypes map[transaction.TransactionType]transaction_processor.TransactionProcessor ) (*Blockchain, error) {
 	var blockchain = Blockchain{
-		CurrentDifficult: difficulty,
+		CurrentDifficulty: difficulty,
 		CurrentRewards:   rewards,
-		TxPool:           []transaction.Transaction{},
-		Blocks:           []block.Block{},
+		txPool:           []transaction.Transaction{},
+		blocks:           []block.Block{},
 		signer: 		  signer,
+		storage: 		  storage,
+		txProcessor: transaction_processor.BaseProcessor{},
+	}
+
+	for txType, processor:= range txTypes {
+		transaction_processor.RegisterProcessorType(txType, processor)
 	}
 
 	var signature, errSign = blockchain.signer.GenerateKeyPair()
@@ -44,8 +54,8 @@ func NewBlockchain(rewards uint64, difficulty uint64, creator string, signer sig
 	return &blockchain, nil
 }
 
-func (blockchain *Blockchain) createBaseTx(recipient string) (transaction.Transaction, error) {
-	var coinbaseTx, txErr = transaction.CreateTransaction(coin_transfer.CoinTransfer, EmptyAddress, int64(blockchain.CurrentRewards), 0, map[string]any{
+func (blockchain *Blockchain) createBaseTx(recipient string, fee int64) (transaction.Transaction, error) {
+	var coinbaseTx, txErr = transaction.CreateTransaction(coin_transfer.CoinTransfer, EmptyAddress, int64(blockchain.CurrentRewards) + fee, 0, map[string]any{
 		"recipient": recipient,
 	})
 	if txErr != nil {
@@ -66,21 +76,26 @@ func (blockchain *Blockchain) createBaseTx(recipient string) (transaction.Transa
 
 func (blockchain *Blockchain) MineBlockFromPool(creator string) (*block.Block, error) {
 	var prevBlock *block.Block = nil
-	if len(blockchain.Blocks) > 0 {
-		prevBlock = &blockchain.Blocks[len(blockchain.Blocks)-1]
+	if len(blockchain.blocks) > 0 {
+		prevBlock = &blockchain.blocks[len(blockchain.blocks)-1]
 	}
-	var block, err = block.NewBlock(prevBlock, blockchain.CurrentDifficult)
+	var block, err = block.NewBlock(prevBlock, blockchain.CurrentDifficulty)
 	if err != nil {
 		return nil, err
 	}
 
-	var coinbaseTx, txErr = blockchain.createBaseTx(creator)
+	var fee int64 = 0
+	for _, tx := range blockchain.txPool {
+		fee += tx.GetFee()
+	}
+
+	var coinbaseTx, txErr = blockchain.createBaseTx(creator, fee)
 	if txErr != nil {
 		return nil, txErr
 	}
 
 	block.AddTransaction(&coinbaseTx)
-	for _, tx := range blockchain.TxPool {
+	for _, tx := range blockchain.txPool {
 		block.AddTransaction(&tx)
 	}
 	var blockHash, errMine = block.Mine(0)
@@ -98,7 +113,7 @@ func (blockchain *Blockchain) MineBlockFromPool(creator string) (*block.Block, e
 
 func (blockchain *Blockchain) deleteExecutedTxFromPool(block *block.Block) {
 	var newPool = []transaction.Transaction{}
-	for _, tx := range blockchain.TxPool {
+	for _, tx := range blockchain.txPool {
 		var checkTx = &tx
 		for _, addedTx := range block.Transactions {
 			if tx.GetTxId() == addedTx.GetTxId() {
@@ -110,7 +125,7 @@ func (blockchain *Blockchain) deleteExecutedTxFromPool(block *block.Block) {
 			newPool = append(newPool, *checkTx)
 		}
 	}
-	blockchain.TxPool = newPool
+	blockchain.txPool = newPool
 }
 
 func (blockchain *Blockchain) AddTransactionToPool(tx transaction.Transaction) error {
@@ -118,32 +133,49 @@ func (blockchain *Blockchain) AddTransactionToPool(tx transaction.Transaction) e
 	if err != nil {
 		return err
 	}
-	blockchain.TxPool = append(blockchain.TxPool, tx)
+	err = blockchain.txProcessor.Validate(tx)
+	if err != nil {
+		return err
+	}
+
+	blockchain.txPool = append(blockchain.txPool, tx)
 
 	return nil
 }
 
 func (blockchain *Blockchain) AddBlock(block *block.Block) error {
+	if blockchain.CurrentDifficulty > block.Difficulty {
+		return fmt.Errorf("block difficulty is too low")
+	}
 	var err = block.Verify(blockchain.signer)
 	if err != nil {
 		return err
 	}
+
+	for _, tx  := range block.Transactions {
+		err := blockchain.txProcessor.Process(tx)
+		if err != nil {
+			blockchain.storage.Reject()
+			return err
+		}
+	}
+	blockchain.storage.Confirm()
 	blockchain.deleteExecutedTxFromPool(block)
-	blockchain.Blocks = append(blockchain.Blocks, *block)
+	blockchain.blocks = append(blockchain.blocks, *block)
 
 	return nil
 }
 
 func (blockchain *Blockchain) Verify(depth int) error {
-	for i := len(blockchain.Blocks) - 1; i >= 0 && i >= len(blockchain.Blocks)-depth; i-- {
+	for i := len(blockchain.blocks) - 1; i >= 0 && i >= len(blockchain.blocks)-depth; i-- {
 		if i > 0 {
-			if blockchain.Blocks[i-1].Hash != blockchain.Blocks[i].Prev {
-				return fmt.Errorf("block %d: has incorrect previos hash", blockchain.Blocks[i].Index)
+			if blockchain.blocks[i-1].Hash != blockchain.blocks[i].Prev {
+				return fmt.Errorf("block %d: has incorrect previos hash", blockchain.blocks[i].Index)
 			}
 		}
-		var err = blockchain.Blocks[i].Verify(blockchain.signer)
+		var err = blockchain.blocks[i].Verify(blockchain.signer)
 		if err != nil {
-			return fmt.Errorf("block %d: %s", blockchain.Blocks[i].Index, err.Error())
+			return fmt.Errorf("block %d: %s", blockchain.blocks[i].Index, err.Error())
 		}
 	}
 
@@ -153,11 +185,11 @@ func (blockchain *Blockchain) Verify(depth int) error {
 func (bc *Blockchain) String() string {
 	var sb strings.Builder
 	sb.WriteString("Blockchain{\n")
-	sb.WriteString(fmt.Sprintf("  CurrentDifficult: %d bits\n", bc.CurrentDifficult))
+	sb.WriteString(fmt.Sprintf("  CurrentDifficult: %d bits\n", bc.CurrentDifficulty))
 	sb.WriteString(fmt.Sprintf("  CurrentRewards: %d\n", bc.CurrentRewards))
-	sb.WriteString(fmt.Sprintf("  TxPool: %d transactions\n", len(bc.TxPool)))
-	sb.WriteString(fmt.Sprintf("  Blocks: %d blocks\n", len(bc.Blocks)))
-	for i, blk := range bc.Blocks {
+	sb.WriteString(fmt.Sprintf("  TxPool: %d transactions\n", len(bc.txPool)))
+	sb.WriteString(fmt.Sprintf("  Blocks: %d blocks\n", len(bc.blocks)))
+	for i, blk := range bc.blocks {
 		sb.WriteString(fmt.Sprintf("    Block[%d]: Index=%d, TxCount=%d\n", i, blk.Index, len(blk.Transactions)))
 	}
 	sb.WriteString("}")

@@ -13,30 +13,30 @@ import (
 const ContractCall transaction.TransactionType = "contract_call"
 
 type ContractCallParams struct {
-	To     transaction.HexBytes `json:"contractAddress" json-hex:"true"`
+	To     transaction.HexBytes `json:"to" json-hex:"true"`
 	Amount uint64 				`json:"amount"`
 }
 
 type ContractCallTransaction struct {
 	transaction.BaseTransaction
 	ContractAddress transaction.HexBytes       `json:"contractAddress" json-hex:"true"`
-	ContractType    ContractType 			   `json:"method"`
+	Method          ContractMethod 			   `json:"method"`
 	InitParams      ContractCallParams
 }
 
-type ContractType string
+type ContractMethod string
 
 const (
-	Transfer ContractType = "transfer"
+	Transfer ContractMethod = "transfer"
 )
 
 // Или с использованием карты для более эффективной проверки
-var validContractTypes = map[ContractType]bool{
+var validContractTypes = map[ContractMethod]bool{
 	Transfer: true,
 }
 
-func IsValid(s string) (ContractType, bool) {
-	return ContractType(s), validContractTypes[ContractType(s)]
+func IsValid(s string) (ContractMethod, bool) {
+	return ContractMethod(s), validContractTypes[ContractMethod(s)]
 }
 
 func NewTransaction(sender string, value int64, fee int64, params map[string]any) (*ContractCallTransaction, error) {
@@ -57,9 +57,9 @@ func NewTransaction(sender string, value int64, fee int64, params map[string]any
 	if amountErr != nil {
 		return nil, amountErr
 	}
-	var contractType, contractTypeErr = utils.GetEnumValueFromParam(params, "contractType", IsValid)
-	if contractTypeErr != nil {
-		return nil, contractTypeErr
+	var method, methodErr = utils.GetEnumValueFromParam(params, "method", IsValid)
+	if methodErr != nil {
+		return nil, methodErr
 	}
 
 	var tx = ContractCallTransaction{
@@ -74,7 +74,7 @@ func NewTransaction(sender string, value int64, fee int64, params map[string]any
 			PublicKey: []byte{},
 		},
 		ContractAddress: contractAddressBytes,
-		ContractType:    contractType,
+		Method:    method,
 		InitParams:      ContractCallParams{To: toBytes, Amount: amount},
 	}
 	var hash, err = tx.CalcHash()
@@ -88,7 +88,7 @@ func NewTransaction(sender string, value int64, fee int64, params map[string]any
 func (tx *ContractCallTransaction) GetDataForHash() []any {
 	var data = tx.BaseTransaction.GetDataForHash()
 	data = append(data, tx.ContractAddress)
-	data = append(data, string(tx.ContractType))
+	data = append(data, string(tx.Method))
 	data = append(data, tx.InitParams.To)
 	data = append(data, tx.InitParams.Amount)
 

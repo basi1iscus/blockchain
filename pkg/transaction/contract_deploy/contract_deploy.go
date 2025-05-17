@@ -19,6 +19,7 @@ type InitParams struct {
 
 type ContractDeployTransaction struct {
 	transaction.BaseTransaction
+	ContractAddress transaction.HexBytes       `json:"contractAddress" json-hex:"true"`
 	Code       transaction.HexBytes `json:"code" json-hex:"true"`
 	InitParams InitParams
 }
@@ -27,6 +28,10 @@ func NewTransaction(sender string, value int64, fee int64, params map[string]any
 	var senderBytes, senderErr = hex.DecodeString(sender)
 	if senderErr != nil || len(senderBytes) != 20 {
 		return nil, fmt.Errorf("unsupported sender format: %s", sender)
+	}
+	var contractAddress, contractErr = utils.GetBytesFromHexParam(params, "contractAddress")
+	if contractErr != nil {
+		return nil, contractErr
 	}
 	var codeBytes, codeErr = utils.GetBytesFromHexParam(params, "code")
 	if codeErr != nil {
@@ -53,6 +58,7 @@ func NewTransaction(sender string, value int64, fee int64, params map[string]any
 			PublicKey: []byte{},
 		},
 		Code: codeBytes,
+		ContractAddress: contractAddress,
 		InitParams: InitParams{
 			Owner:          ownerBytes,
 			InitialSupplay: initialSupplay,
@@ -68,6 +74,7 @@ func NewTransaction(sender string, value int64, fee int64, params map[string]any
 
 func (tx *ContractDeployTransaction) getDataForHash() []any {
 	var data = tx.BaseTransaction.GetDataForHash()
+	data = append(data, tx.ContractAddress)
 	data = append(data, tx.Code)
 	data = append(data, tx.InitParams.InitialSupplay)
 	data = append(data, tx.InitParams.Owner)
