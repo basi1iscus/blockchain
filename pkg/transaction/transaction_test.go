@@ -32,7 +32,7 @@ func TestTransaction_SerializeDeserialize(t *testing.T) {
 			params: map[string]any{
 				"contractAddress": address,
 				"to": address,
-				"contractType": "transfer",
+				"method": "transfer",
 				"amount": uint64(42),
 			},
 		},
