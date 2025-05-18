@@ -3,6 +3,7 @@ package wallet
 import (
 	"blockchain_demo/pkg/sign"
 	"blockchain_demo/pkg/utils"
+	"bytes"
 	"fmt"
 
 	"github.com/btcsuite/btcutil/base58"
@@ -32,9 +33,9 @@ func createAddress(pubKey []byte, prefix []byte) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to hash checksum: %v", err)
 	}
-	arrdess := append(netAddress, checksum[:4]...)
+	address := append(netAddress, checksum[:4]...)
 
-	return base58.Encode(arrdess), nil
+	return base58.Encode(address), nil
 }
 
 func CreateWallet(keys *sign.SignatureKeys, prefix []byte) (*Wallet, error) {
@@ -56,5 +57,23 @@ func ValidateAddress(pubKey []byte, prefix []byte, address string) error {
 		return fmt.Errorf("address not match to public key")
 	}
 
+	return nil
+}
+
+func CheckAddress(address string) error {
+	binAddress := base58.Decode(address)
+	
+	hash, err := utils.GetHash(binAddress[:21])
+	if err != nil {
+		return fmt.Errorf("failed to hash netAddress: %v", err)
+	}
+	checksum, err := utils.GetHash(hash)
+	if err != nil {
+		return fmt.Errorf("failed to hash checksum: %v", err)
+	}
+	if !bytes.Equal(checksum[:4], binAddress[21:]) {
+		return fmt.Errorf("address nor correct")
+	}
+	
 	return nil
 }

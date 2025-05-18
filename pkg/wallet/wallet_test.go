@@ -41,6 +41,11 @@ func TestValidateAddress(t *testing.T) {
 		t.Errorf("address validation failed: %v", err)
 	}
 
+	err = CheckAddress(wallet.Address)
+	if err != nil {
+		t.Errorf("address check failed: %v", err)
+	}
+
 	// Test with an invalid address
 	invalidAddress := "invalidAddress"
 	err = ValidateAddress(keys.PublicKey, prefix, invalidAddress)
