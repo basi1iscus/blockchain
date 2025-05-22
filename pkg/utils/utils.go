@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+
+	"golang.org/x/crypto/ripemd160"
 )
 
 func bytes(value any) ([]byte, error) {
@@ -50,6 +52,18 @@ func GetHash(values ...any) ([]byte, error) {
 	return hash, nil
 }
 
+func GetHash160(prefix []byte, values ...any) ([]byte, error) {
+	var hasher = ripemd160.New()
+	for _, val := range values {
+		b, err := bytes(val)
+		if err != nil {
+			return nil, err
+		}
+		hasher.Write(b)
+	}
+	hash := hasher.Sum(prefix)
+	return hash, nil
+}
 func GetBytesFromHexParam(params map[string]any, field string) ([]byte, error) {
 	value, exists := params[field]
 	if !exists {
