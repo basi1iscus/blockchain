@@ -17,8 +17,11 @@ This is a simple blockchain implementation in Go, demonstrating basic blockchain
 - `pkg/transaction_processor/` — Transaction verification and processors for each type
 - `pkg/sign/` — Signature generation and verification
 - `pkg/utils/` — Utility functions
+  - `stack/` — Generic stack implementation (tested, used by script VM)
+  - `queue/` — Generic queue implementation (tested, used by script VM for opcode precompilation)
 - `pkg/wallet/` — Wallet creation, address validation, and tests
 - `pkg/ballance_storage/` — In-memory balance storage and tests
+- `pkg/script_vm/` — Bitcoin-like Script VM (stack-based, supports custom opcodes, queue-based precompilation, and signature/hash operations)
 
 ## Requirements
 
@@ -73,6 +76,26 @@ go run ./cmd/main.go
 When constructing a blockchain, you must now provide:
 - A `ballance_storage.BallanceStorage` implementation (e.g., `NewMemoryStorage()`)
 - A map of transaction processors for all supported types (see `cmd/main_test.go` for an example)
+
+## Script VM, Stack, and Queue
+
+### Script VM (`pkg/script_vm/`)
+- Implements a Bitcoin-like stack-based virtual machine for transaction scripts.
+- Supports opcode precompilation using a queue for efficient execution.
+- Handles standard stack operations, signature/hash opcodes, and custom logic.
+- Extensible for new opcodes and script types.
+- Used for validating P2PKH, multisig, and custom scripts.
+
+### Stack (`pkg/utils/stack/`)
+- Generic, type-safe stack implementation in Go.
+- Used by the script VM for all stack operations.
+- Fully unit tested.
+
+### Queue (`pkg/utils/queue/`)
+- Generic, type-safe queue implementation in Go.
+- Used by the script VM for opcode precompilation and execution order.
+- Provides iterator support for idiomatic Go iteration.
+- Fully unit tested.
 
 ## License
 
