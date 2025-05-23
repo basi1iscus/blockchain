@@ -7,6 +7,8 @@ import (
 	"blockchain_demo/pkg/utils/queue"
 	"blockchain_demo/pkg/utils/stack"
 	"errors"
+	"fmt"
+	"slices"
 )
 
 type OPCode byte
@@ -115,6 +117,13 @@ var ActiveCodes = [...]OPCode{
 	OP_HASH256,
 	OP_CHECKSIG,
 	OP_CHECKSIGVERIFY,
+	OP_IF,
+	OP_NOTIF,
+	OP_ELSE,
+	OP_ENDIF,
+	OP_RETURN,
+	OP_CHECKMULTISIG,
+	OP_CHECKMULTISIGVERIFY,
 }
 
 type operation struct{
@@ -192,6 +201,45 @@ func (v *vm) checksig(data []byte) (bool, error) {
 	return v.signer.Verify(data, signature, pubKey)
 }
 
+func (v *vm) checkmultisig(data []byte) (bool, error) {
+	count, err := v.stack.Pop()
+	if err != nil {
+		return false, err
+	}
+	pubkeys := make([][]byte, int(count[0]))
+	for i := 0; i < int(count[0]); i++ {
+		pubKey, err := v.stack.Pop()
+		if err != nil {
+			return false, err
+		}
+		pubkeys[i] = pubKey
+	}
+	need, err := v.stack.Pop()
+	if err != nil {
+		return false, err
+	}
+	for i := 0; i < int(need[0]); i++ {
+		found := false
+		signature, err := v.stack.Pop()
+		if err != nil {
+			return false, err
+		}
+		for k, pubKey := range pubkeys {
+			ok, err := v.signer.Verify(data, signature, pubKey)
+			if err == nil && ok {
+				// remove the public key from the list to avoid use double signature
+				pubkeys = slices.Delete(pubkeys, k, k+1)
+				found = true
+				break
+			}
+		}
+		if !found {	
+			return false, nil		
+		}
+	}
+	return true, nil
+}
+
 func (v *vm) Precompile(script []byte) error {
 	pointer := 0
 	currentBranch := &v.mainBranch
@@ -243,7 +291,7 @@ func (v *vm) Precompile(script []byte) error {
 		case IsActive(OPCode(script[pointer])):
 			currentBranch.queue.Enqueue(operation{code: OPCode(script[pointer]), data: nil})
 		default:
-			return errors.New("unknown opcode")
+			return fmt.Errorf("unknown opcode %#x", script[pointer])
 		}
 
 		pointer += inc
@@ -302,6 +350,8 @@ func (v *vm) Execute(branch branch, tx transaction.Transaction) error {
 			}
 		case OP_ENDIF:
 		case OP_NOP:
+		case OP_RETURN:
+			return errors.New("return opcode encountered")
 		case OP_IFDUP:
 			top, err := v.stack.Pick()
 			if err != nil {
@@ -404,6 +454,26 @@ func (v *vm) Execute(branch branch, tx transaction.Transaction) error {
 			}
 			if !ok {
 				return errors.New("checksig verify failed")
+			}
+		case OP_CHECKMULTISIG:
+			txid := tx.GetTxId()
+			ok, err := v.checkmultisig(txid[:])
+			if err != nil {
+				return err
+			}
+			if ok {
+				v.stack.Push([]byte{OP_TRUE})
+			} else {
+				v.stack.Push([]byte{OP_FALSE})
+			}
+		case OP_CHECKMULTISIGVERIFY:
+			txid := tx.GetTxId()
+			ok, err := v.checkmultisig(txid[:])
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("checksig verify failed")
 			}
 		}
 	}

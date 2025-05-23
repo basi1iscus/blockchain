@@ -1,6 +1,7 @@
 package script_vm
 
 import (
+	"blockchain_demo/pkg/sign"
 	"blockchain_demo/pkg/sign/sign_ed25519"
 	"blockchain_demo/pkg/transaction"
 	"blockchain_demo/pkg/transaction/coin_transfer"
@@ -208,5 +209,67 @@ func TestVM_IfElse(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestVM_CheckMultiSig(t *testing.T) {
+	signer := sign_ed25519.Ed25519Signer{}
+	// Generate 3 key pairs
+	keys := make([]*sign.SignatureKeys, 3)
+	for i := 0; i < 3; i++ {
+		k, err := signer.GenerateKeyPair()
+		if err != nil {
+			t.Fatalf("failed to generate key pair: %v", err)
+		}
+		keys[i] = k
+	}
+
+
+	// Generate a random 20-byte hex address for recipient
+	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+	addrBytes := make([]byte, 20)
+	rnd.Read(addrBytes)
+	address := hex.EncodeToString(addrBytes)
+
+	tx, err := transaction.CreateTransaction(coin_transfer.CoinTransfer, address, 1000, 10, map[string]any{
+		"recipient": address,
+	})
+	if err != nil {
+		t.Fatalf("failed to sign: %v", err)
+	}
+		txid := tx.GetTxId()
+
+	// Create 2 valid signatures (for keys[0] and keys[2])
+	sig0, _ := signer.Sign(txid[:], keys[0].PrivateKey)
+	sig2, _ := signer.Sign(txid[:], keys[2].PrivateKey)
+
+	// Script: <2> <sig0> <sig2> <3> <pub0> <pub1> <pub2> OP_CHECKMULTISIG
+	script := []byte{
+		OP_0, // need 2 signatures
+		byte(len(sig0)),
+	}
+	script = append(script, sig0...)
+	script = append(script, byte(len(sig2)))
+	script = append(script, sig2...)
+	script = append(script, OP_2) // need 2 signatures from 3 pubkeys
+	for _, k := range keys {
+		script = append(script, byte(len(k.PublicKey)))
+		script = append(script, k.PublicKey...)
+	}
+	script = append(script, OP_3) // 3 pubkeys
+	// script = append(script, 0) // dummy (bitcoin bug)
+	script = append(script, OP_CHECKMULTISIG)
+
+	vm := New(&signer)
+	err = vm.Run(script, tx)
+	if err != nil {
+		t.Fatalf("VM failed: %v", err)
+	}
+	res, err := vm.stack.Pop()
+	if err != nil {
+		t.Fatalf("stack error: %v", err)
+	}
+	if !bytes.Equal(res, []byte{OP_TRUE}) {
+		t.Errorf("expected OP_TRUE, got %x", res)
 	}
 }
