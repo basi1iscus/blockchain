@@ -4,28 +4,51 @@ import (
 	"blockchain_demo/pkg/sign"
 	"blockchain_demo/pkg/transaction"
 	"blockchain_demo/pkg/utils"
+	"blockchain_demo/pkg/utils/queue"
 	"blockchain_demo/pkg/utils/stack"
 	"errors"
 )
 
+type operation struct{
+	code OPCode
+	data []byte
+}
 type vm struct {
 	stack  stack.Stack[[]byte]
+	queue  queue.Queue[operation]
 	signer sign.Signer
 }
+
+type OPCode byte
 
 const (
 	OP_FALSE = 0x00 // OP_0 is the opcode for 0
 	OP_TRUE  = 0x01 // OP_1 is the opcode for 1
-
+)
+const (
 	OP_0            = 0x00 // OP_0 is the opcode for 0
-	OP_PUSHDATA0_01 = 0x01 // OP_1 is the opcode for 1
-	OP_PUSHDATA0_4B = 0x4B // OP_1 is the opcode for 1
+	OP_PUSHDATA     = 0x01 // OP_1 is the opcode for 1
+	OP_PUSHDATA_4B  = 0x4B // OP_1 is the opcode for 1
 	OP_PUSHDATA1    = 0x4C // OP_1 is the opcode for 1
 	OP_PUSHDATA2    = 0x4D // OP_1 is the opcode for 1
 	OP_PUSHDATA4    = 0x4E // OP_1 is the opcode for 1
 	OP_1NEGATE      = 0x4F // OP_1NEGATE is the opcode for -1
 
 	OP_1  = 0x51 // OP_1 is the opcode for 1
+	OP_2  = 0x52 // OP_2 is the opcode for 2
+	OP_3  = 0x53 // OP_3 is the opcode for 3
+	OP_4  = 0x54 // OP_4 is the opcode for 4
+	OP_5  = 0x55 // OP_5 is the opcode for 5
+	OP_6  = 0x56 // OP_6 is the opcode for 6
+	OP_7  = 0x57 // OP_7 is the opcode for 7
+	OP_8  = 0x58 // OP_8 is the opcode for 8
+	OP_9  = 0x59 // OP_9 is the opcode for 9
+	OP_10 = 0x5A // OP_10 is the opcode for 10
+	OP_11 = 0x5B // OP_11 is the opcode for 11
+	OP_12 = 0x5C // OP_12 is the opcode for 12
+	OP_13 = 0x5D // OP_13 is the opcode for 13
+	OP_14 = 0x5E // OP_14 is the opcode for 14
+	OP_15 = 0x5F // OP_15 is the opcode for 15
 	OP_16 = 0x60 // OP_16 is the opcode for 16
 
 	OP_NOP    = 0x61 //	Не делает ничего	Активен
@@ -82,6 +105,36 @@ const (
 	OP_CHECKMULTISIGVERIFY = 0xAF //	OP_CHECKMULTISIG + OP_VERIFY
 )
 
+var ActiveCodes = [...]OPCode{
+	OP_FALSE,
+	OP_TRUE,
+	OP_0,
+	OP_1NEGATE,
+	OP_1,
+	OP_2, OP_3, OP_4, OP_5, OP_6, OP_7, OP_8, OP_9, OP_10, OP_11, OP_12, OP_13, OP_14, OP_15, OP_16,
+	OP_PUSHDATA, OP_PUSHDATA_4B, OP_PUSHDATA1, OP_PUSHDATA2, OP_PUSHDATA4,
+	OP_NOP,
+	OP_IFDUP,
+	OP_DROP,
+	OP_DUP,
+	OP_EQUAL,
+	OP_EQUALVERIFY,
+	OP_VERIFY,
+	OP_SHA256,
+	OP_HASH160,
+	OP_HASH256,
+	OP_CHECKSIG,
+	OP_CHECKSIGVERIFY,
+}
+func IsActive(op OPCode) bool {
+	for _, activeOp := range ActiveCodes {
+		if op == activeOp {
+			return true
+		}
+	}
+	return false
+}
+
 func New(signer sign.Signer) *vm {
 	return &vm{
 		stack:  stack.New[[]byte](),
@@ -130,36 +183,64 @@ func (v *vm) checksig(data []byte) (bool, error) {
 	return v.signer.Verify(data, signature, pubKey)
 }
 
-func (v *vm) Execute(script []byte, tx transaction.Transaction) error {
+func (v *vm) Precompile(script []byte) error {
 	pointer := 0
 	for pointer < len(script) {
 		inc := 1
 		dataLength := 0
 		switch {
-		case script[pointer] == OP_0:
-			v.stack.Push(script[pointer : pointer+1])
+		case script[pointer] == byte(OP_0):
+			v.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer : pointer+1]})
 		case script[pointer] == OP_1NEGATE:
-			v.stack.Push(script[pointer : pointer+1])
+			v.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer : pointer+1]})
 		case script[pointer] >= OP_1 && script[pointer] <= OP_16:
-			v.stack.Push([]byte{script[pointer] - OP_1 + 1})
-		case script[pointer] >= OP_PUSHDATA0_01 && script[pointer] <= OP_PUSHDATA0_4B:
+			v.queue.Enqueue(operation{code: OP_PUSHDATA, data: []byte{script[pointer] - OP_1 + 1}})
+		case script[pointer] >= OP_PUSHDATA && script[pointer] <= OP_PUSHDATA_4B:
 			dataLength = int(script[pointer])
 			inc = dataLength + 1
-			v.stack.Push(script[pointer+1 : pointer+1+dataLength])
+			v.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+1 : pointer+1+dataLength]})
 		case script[pointer] == OP_PUSHDATA1:
 			dataLength = int(script[pointer+1])
 			inc = dataLength + 2
-			v.stack.Push(script[pointer+2 : pointer+2+dataLength])
+			v.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+2 : pointer+2+dataLength]})
 		case script[pointer] == OP_PUSHDATA2:
 			dataLength = int(script[pointer+1]) | int(script[pointer+2])<<8
 			inc = dataLength + 3
-			v.stack.Push(script[pointer+3 : pointer+3+dataLength])
+			v.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+3 : pointer+3+dataLength]})
 		case script[pointer] == OP_PUSHDATA4:
 			dataLength = int(script[pointer+1]) | int(script[pointer+2])<<8 | int(script[pointer+3])<<16 | int(script[pointer+4])<<24
 			inc = dataLength + 5
-			v.stack.Push(script[pointer+5 : pointer+5+dataLength])
-		case script[pointer] == OP_NOP:
-		case script[pointer] == OP_IFDUP:
+			v.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+5 : pointer+5+dataLength]})
+		case IsActive(OPCode(script[pointer])):
+			v.queue.Enqueue(operation{code: OPCode(script[pointer]), data: nil})
+		default:
+			return errors.New("unknown opcode")
+		}
+
+		pointer += inc
+	}
+	return nil
+}
+
+func (v *vm) Run(script []byte, tx transaction.Transaction) error {
+	err := v.Precompile(script)
+	if err != nil {
+		return err
+	}
+	err = v.Execute(tx)
+	if err != nil {	
+		return err
+	}
+	return nil
+}
+
+func (v *vm) Execute(tx transaction.Transaction) error {
+	for op := range v.queue.Iterator() {
+		switch {
+		case op.code == OP_PUSHDATA:
+			v.stack.Push(op.data)
+		case op.code == OP_NOP:
+		case op.code == OP_IFDUP:
 			top, err := v.stack.Pick()
 			if err != nil {
 				return err
@@ -167,18 +248,18 @@ func (v *vm) Execute(script []byte, tx transaction.Transaction) error {
 			if compare(top, make([]byte, len(top))) != 0 {
 				v.stack.Push(top)
 			}
-		case script[pointer] == OP_DROP:
+		case op.code == OP_DROP:
 			_, err := v.stack.Pop()
 			if err != nil {
 				return err
 			}
-		case script[pointer] == OP_DUP:
+		case op.code == OP_DUP:
 			top, err := v.stack.Pick()
 			if err != nil {
 				return err
 			}
 			v.stack.Push(top)
-		case script[pointer] == OP_EQUAL:
+		case op.code == OP_EQUAL:
 			eq, err := v.equal()
 			if err != nil {
 				return err
@@ -188,7 +269,7 @@ func (v *vm) Execute(script []byte, tx transaction.Transaction) error {
 			} else {
 				v.stack.Push([]byte{OP_FALSE})
 			}
-		case script[pointer] == OP_EQUALVERIFY:
+		case op.code == OP_EQUALVERIFY:
 			eq, err := v.equal()
 			if err != nil {
 				return err
@@ -196,7 +277,7 @@ func (v *vm) Execute(script []byte, tx transaction.Transaction) error {
 			if !eq {
 				return errors.New("equal verify failed")
 			}
-		case script[pointer] == OP_VERIFY:
+		case op.code == OP_VERIFY:
 			top, err := v.stack.Pop()
 			if err != nil {
 				return err
@@ -204,7 +285,7 @@ func (v *vm) Execute(script []byte, tx transaction.Transaction) error {
 			if compare(top, make([]byte, len(top))) == 0 {
 				return errors.New("verify failed")
 			}
-		case script[pointer] == OP_SHA256:
+		case op.code == OP_SHA256:
 			top, err := v.stack.Pop()
 			if err != nil {
 				return err
@@ -214,7 +295,7 @@ func (v *vm) Execute(script []byte, tx transaction.Transaction) error {
 				return err
 			}
 			v.stack.Push(hash)
-		case script[pointer] == OP_HASH160:
+		case op.code == OP_HASH160:
 			top, err := v.stack.Pop()
 			if err != nil {
 				return err
@@ -228,7 +309,7 @@ func (v *vm) Execute(script []byte, tx transaction.Transaction) error {
 				return err
 			}
 			v.stack.Push(hash160)
-		case script[pointer] == OP_HASH256:
+		case op.code == OP_HASH256:
 			top, err := v.stack.Pop()
 			if err != nil {
 				return err
@@ -242,7 +323,7 @@ func (v *vm) Execute(script []byte, tx transaction.Transaction) error {
 				return err
 			}
 			v.stack.Push(hash256)
-		case script[pointer] == OP_CHECKSIG:
+		case op.code == OP_CHECKSIG:
 			txid := tx.GetTxId()
 			ok, err := v.checksig(txid[:])
 			if err != nil {
@@ -253,7 +334,7 @@ func (v *vm) Execute(script []byte, tx transaction.Transaction) error {
 			} else {
 				v.stack.Push([]byte{OP_FALSE})
 			}
-		case script[pointer] == OP_CHECKSIGVERIFY:
+		case op.code == OP_CHECKSIGVERIFY:
 			txid := tx.GetTxId()
 			ok, err := v.checksig(txid[:])
 			if err != nil {
@@ -263,8 +344,6 @@ func (v *vm) Execute(script []byte, tx transaction.Transaction) error {
 				return errors.New("checksig verify failed")
 			}
 		}
-
-		pointer += inc
 	}
 	return nil
 }

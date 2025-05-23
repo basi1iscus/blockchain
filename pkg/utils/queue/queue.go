@@ -77,3 +77,24 @@ func (s *Queue[T]) IsEmpty() bool {
 func (s *Queue[T]) Size() int {
 	return s.size
 }
+
+func (s *Queue[T]) Next() (T, bool) {
+    val, err := s.Dequeue()
+	if err != nil {	
+		 var zero T
+		return zero, false
+	}
+    return val, true
+}
+
+func (q *Queue[T]) Iterator() <-chan T {
+    ch := make(chan T)
+    go func() {
+		for v, ok := q.Next(); ok; v, ok = q.Next() {
+			ch <-v
+		}		
+
+        close(ch)
+    }()
+    return ch
+}

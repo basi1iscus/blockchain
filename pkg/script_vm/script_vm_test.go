@@ -68,7 +68,7 @@ func TestVM_P2PKH(t *testing.T) {
 
 	// 7. Run VM
 	vm := New(&signer)
-	err = vm.Execute(fullScript, tx)
+	err = vm.Run(fullScript, tx)
 	if err != nil {
 		t.Fatalf("VM failed: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestVM_AllOpcodes(t *testing.T) {
 		script []byte
 		want   []byte
 		wantErr bool
-	}{
+		}{
 		{"OP_0", []byte{OP_0}, []byte{OP_0}, false},
 		{"OP_1NEGATE", []byte{OP_1NEGATE}, []byte{OP_1NEGATE}, false},
 		{"OP_1", []byte{OP_1}, []byte{1}, false},
@@ -125,13 +125,13 @@ func TestVM_AllOpcodes(t *testing.T) {
 		{"OP_SHA256", []byte{1, 0x01, OP_SHA256}, nil, false},
 		{"OP_HASH160", []byte{1, 0x01, OP_HASH160}, nil, false},
 		{"OP_HASH256", []byte{1, 0x01, OP_HASH256}, nil, false},
-		{"OP_CHECKSIG_true", append(append([]byte{byte(len(sig))}, sig...), append([]byte{byte(len(pub))}, pub...)...), []byte{OP_TRUE}, false},
+		{"OP_CHECKSIG_true", append(append(append([]byte{byte(len(sig))}, sig...), append([]byte{byte(len(pub))}, pub...)...), OP_CHECKSIG), []byte{OP_TRUE}, false},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			vm := New(&signer)
-			err := vm.Execute(tc.script, tx)
+			err := vm.Run(tc.script, tx)
 			if tc.wantErr {
 				if err == nil {
 					t.Errorf("expected error, got nil")

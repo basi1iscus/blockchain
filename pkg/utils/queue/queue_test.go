@@ -43,3 +43,30 @@ func TestQueue_Basic(t *testing.T) {
 		t.Error("expected error on dequeue from empty queue")
 	}
 }
+
+func TestQueue_Iterator(t *testing.T) {
+	q := New[int]()
+	values := []int{10, 20, 30, 40, 50}
+	for _, v := range values {
+		q.Enqueue(v)
+	}
+
+	var iterated []int
+	for v := range q.Iterator() {
+		iterated = append(iterated, v)
+	}
+
+	if len(iterated) != len(values) {
+		t.Fatalf("expected %d elements, got %d", len(values), len(iterated))
+	}
+	for i, v := range values {
+		if iterated[i] != v {
+			t.Errorf("at index %d: expected %d, got %d", i, v, iterated[i])
+		}
+	}
+
+	// After iteration, queue should be empty
+	if !q.IsEmpty() {
+		t.Errorf("queue should be empty after iteration")
+	}
+}
