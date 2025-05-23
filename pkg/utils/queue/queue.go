@@ -15,8 +15,8 @@ type (
 	}
 )
 
-func New[T any]() Queue[T] {
-	return Queue[T]{
+func New[T any]() *Queue[T] {
+	return &Queue[T]{
 		head: nil,
 		tail: nil,
 		size: 0,

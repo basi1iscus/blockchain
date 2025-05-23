@@ -5,6 +5,7 @@ import "fmt"
 type (
 	Stack[T any] struct {
 		top *node[T]
+		size int
 	}
 	node[T any] struct {
 		value T
@@ -12,8 +13,8 @@ type (
 	}
 )
 
-func New[T any]() Stack[T] {
-	return Stack[T]{
+func New[T any]() *Stack[T] {
+	return &Stack[T]{
 		top: nil,
 	}
 }
@@ -24,6 +25,7 @@ func (s *Stack[T]) Push(v T) {
 		prev:  s.top,
 	}
 	s.top = node
+	s.size++
 }
 
 func (s *Stack[T]) Pop() (T, error) {
@@ -33,6 +35,7 @@ func (s *Stack[T]) Pop() (T, error) {
 	}
 	node := s.top
 	s.top = node.prev
+	s.size--
 
 	return node.value, nil
 }
@@ -46,5 +49,9 @@ func (s *Stack[T]) Pick() (T, error) {
 }
 
 func (s *Stack[T]) IsEmpty() bool {
-	return s.top == nil
+	return s.size == 0
+}
+
+func (s *Stack[T]) Size() int {
+	return s.size
 }

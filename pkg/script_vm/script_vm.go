@@ -9,16 +9,6 @@ import (
 	"errors"
 )
 
-type operation struct{
-	code OPCode
-	data []byte
-}
-type vm struct {
-	stack  stack.Stack[[]byte]
-	queue  queue.Queue[operation]
-	signer sign.Signer
-}
-
 type OPCode byte
 
 const (
@@ -126,6 +116,24 @@ var ActiveCodes = [...]OPCode{
 	OP_CHECKSIG,
 	OP_CHECKSIGVERIFY,
 }
+
+type operation struct{
+	code OPCode
+	data []byte
+	childBranch branch
+}
+
+type branch struct{
+	queue *queue.Queue[operation]
+	parent *branch
+}
+
+type vm struct {
+	stack  *stack.Stack[[]byte]
+	mainBranch  branch
+	signer sign.Signer
+}
+
 func IsActive(op OPCode) bool {
 	for _, activeOp := range ActiveCodes {
 		if op == activeOp {
@@ -139,6 +147,7 @@ func New(signer sign.Signer) *vm {
 	return &vm{
 		stack:  stack.New[[]byte](),
 		signer: signer,
+		mainBranch: branch{queue: queue.New[operation](), parent: nil},
 	}
 }
 
@@ -185,34 +194,54 @@ func (v *vm) checksig(data []byte) (bool, error) {
 
 func (v *vm) Precompile(script []byte) error {
 	pointer := 0
+	currentBranch := &v.mainBranch
 	for pointer < len(script) {
 		inc := 1
 		dataLength := 0
 		switch {
 		case script[pointer] == byte(OP_0):
-			v.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer : pointer+1]})
+			currentBranch.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer : pointer+1]})
 		case script[pointer] == OP_1NEGATE:
-			v.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer : pointer+1]})
+			currentBranch.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer : pointer+1]})
 		case script[pointer] >= OP_1 && script[pointer] <= OP_16:
-			v.queue.Enqueue(operation{code: OP_PUSHDATA, data: []byte{script[pointer] - OP_1 + 1}})
+			currentBranch.queue.Enqueue(operation{code: OP_PUSHDATA, data: []byte{script[pointer] - OP_1 + 1}})
 		case script[pointer] >= OP_PUSHDATA && script[pointer] <= OP_PUSHDATA_4B:
 			dataLength = int(script[pointer])
 			inc = dataLength + 1
-			v.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+1 : pointer+1+dataLength]})
+			currentBranch.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+1 : pointer+1+dataLength]})
 		case script[pointer] == OP_PUSHDATA1:
 			dataLength = int(script[pointer+1])
 			inc = dataLength + 2
-			v.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+2 : pointer+2+dataLength]})
+			currentBranch.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+2 : pointer+2+dataLength]})
 		case script[pointer] == OP_PUSHDATA2:
 			dataLength = int(script[pointer+1]) | int(script[pointer+2])<<8
 			inc = dataLength + 3
-			v.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+3 : pointer+3+dataLength]})
+			currentBranch.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+3 : pointer+3+dataLength]})
 		case script[pointer] == OP_PUSHDATA4:
 			dataLength = int(script[pointer+1]) | int(script[pointer+2])<<8 | int(script[pointer+3])<<16 | int(script[pointer+4])<<24
 			inc = dataLength + 5
-			v.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+5 : pointer+5+dataLength]})
+			currentBranch.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+5 : pointer+5+dataLength]})
+		case script[pointer] == OP_IF || script[pointer] == OP_NOTIF:
+			child := branch{queue: queue.New[operation](), parent: currentBranch}
+			currentBranch.queue.Enqueue(operation{code: OPCode(script[pointer]), data: nil, childBranch: child})
+			currentBranch = &child
+		case script[pointer] == OP_ELSE:
+			parent := currentBranch.parent
+			if parent == nil {
+				return errors.New("else without if")
+			}
+			child := branch{queue: queue.New[operation](), parent: parent}
+			parent.queue.Enqueue(operation{code: OP_ELSE, data: nil, childBranch: child})
+			currentBranch = &child
+		case script[pointer] == OP_ENDIF:
+			parent := currentBranch.parent
+			if parent == nil {
+				return errors.New("endif without if")
+			}
+			currentBranch = parent
+			currentBranch.queue.Enqueue(operation{code: OP_ENDIF, data: nil})
 		case IsActive(OPCode(script[pointer])):
-			v.queue.Enqueue(operation{code: OPCode(script[pointer]), data: nil})
+			currentBranch.queue.Enqueue(operation{code: OPCode(script[pointer]), data: nil})
 		default:
 			return errors.New("unknown opcode")
 		}
@@ -227,20 +256,53 @@ func (v *vm) Run(script []byte, tx transaction.Transaction) error {
 	if err != nil {
 		return err
 	}
-	err = v.Execute(tx)
+	err = v.Execute(v.mainBranch, tx)
 	if err != nil {	
 		return err
 	}
 	return nil
 }
 
-func (v *vm) Execute(tx transaction.Transaction) error {
-	for op := range v.queue.Iterator() {
-		switch {
-		case op.code == OP_PUSHDATA:
+func (v *vm) Execute(branch branch, tx transaction.Transaction) error {
+	var lastIf bool
+	for op := range branch.queue.Iterator() {
+		switch (op.code) {
+		case OP_PUSHDATA:
 			v.stack.Push(op.data)
-		case op.code == OP_NOP:
-		case op.code == OP_IFDUP:
+		case OP_IF:
+			top, err := v.stack.Pop()
+			if err != nil {
+				return err
+			}
+			lastIf = compare(top, make([]byte, len(top))) != 0
+			if lastIf {
+				err = v.Execute(op.childBranch, tx)
+				if err != nil {
+					return err
+				}
+			}
+		case OP_NOTIF:
+			top, err := v.stack.Pop()
+			if err != nil {
+				return err
+			}
+			lastIf = compare(top, make([]byte, len(top))) == 0
+			if lastIf {
+				err = v.Execute(op.childBranch, tx)
+				if err != nil {
+					return err
+				}
+			}
+		case OP_ELSE:
+			if !lastIf {
+				err := v.Execute(op.childBranch, tx)
+				if err != nil {
+					return err
+				}
+			}
+		case OP_ENDIF:
+		case OP_NOP:
+		case OP_IFDUP:
 			top, err := v.stack.Pick()
 			if err != nil {
 				return err
@@ -248,18 +310,18 @@ func (v *vm) Execute(tx transaction.Transaction) error {
 			if compare(top, make([]byte, len(top))) != 0 {
 				v.stack.Push(top)
 			}
-		case op.code == OP_DROP:
+		case OP_DROP:
 			_, err := v.stack.Pop()
 			if err != nil {
 				return err
 			}
-		case op.code == OP_DUP:
+		case OP_DUP:
 			top, err := v.stack.Pick()
 			if err != nil {
 				return err
 			}
 			v.stack.Push(top)
-		case op.code == OP_EQUAL:
+		case OP_EQUAL:
 			eq, err := v.equal()
 			if err != nil {
 				return err
@@ -269,7 +331,7 @@ func (v *vm) Execute(tx transaction.Transaction) error {
 			} else {
 				v.stack.Push([]byte{OP_FALSE})
 			}
-		case op.code == OP_EQUALVERIFY:
+		case OP_EQUALVERIFY:
 			eq, err := v.equal()
 			if err != nil {
 				return err
@@ -277,7 +339,7 @@ func (v *vm) Execute(tx transaction.Transaction) error {
 			if !eq {
 				return errors.New("equal verify failed")
 			}
-		case op.code == OP_VERIFY:
+		case OP_VERIFY:
 			top, err := v.stack.Pop()
 			if err != nil {
 				return err
@@ -285,7 +347,7 @@ func (v *vm) Execute(tx transaction.Transaction) error {
 			if compare(top, make([]byte, len(top))) == 0 {
 				return errors.New("verify failed")
 			}
-		case op.code == OP_SHA256:
+		case OP_SHA256:
 			top, err := v.stack.Pop()
 			if err != nil {
 				return err
@@ -295,7 +357,7 @@ func (v *vm) Execute(tx transaction.Transaction) error {
 				return err
 			}
 			v.stack.Push(hash)
-		case op.code == OP_HASH160:
+		case OP_HASH160:
 			top, err := v.stack.Pop()
 			if err != nil {
 				return err
@@ -309,7 +371,7 @@ func (v *vm) Execute(tx transaction.Transaction) error {
 				return err
 			}
 			v.stack.Push(hash160)
-		case op.code == OP_HASH256:
+		case OP_HASH256:
 			top, err := v.stack.Pop()
 			if err != nil {
 				return err
@@ -323,7 +385,7 @@ func (v *vm) Execute(tx transaction.Transaction) error {
 				return err
 			}
 			v.stack.Push(hash256)
-		case op.code == OP_CHECKSIG:
+		case OP_CHECKSIG:
 			txid := tx.GetTxId()
 			ok, err := v.checksig(txid[:])
 			if err != nil {
@@ -334,7 +396,7 @@ func (v *vm) Execute(tx transaction.Transaction) error {
 			} else {
 				v.stack.Push([]byte{OP_FALSE})
 			}
-		case op.code == OP_CHECKSIGVERIFY:
+		case OP_CHECKSIGVERIFY:
 			txid := tx.GetTxId()
 			ok, err := v.checksig(txid[:])
 			if err != nil {

@@ -152,3 +152,61 @@ func TestVM_AllOpcodes(t *testing.T) {
 		})
 	}
 }
+
+func TestVM_IfElse(t *testing.T) {
+	signer := sign_ed25519.Ed25519Signer{}
+	// keys, err := signer.GenerateKeyPair() // not needed for these tests
+	tx, _ := transaction.CreateTransaction(coin_transfer.CoinTransfer, "", 1, 1, nil)
+
+	cases := []struct {
+		name   string
+		script []byte
+		want   []byte
+		wantErr bool
+	}{
+		{
+			"OP_IF true branch",
+			[]byte{1, 0x01, OP_IF, 1, 0xAA, OP_ELSE, 1, 0xBB, OP_ENDIF},
+			[]byte{0xAA}, false,
+		},
+		{
+			"OP_IF false branch",
+			[]byte{1, 0x00, OP_IF, 1, 0xAA, OP_ELSE, 1, 0xBB, OP_ENDIF},
+			[]byte{0xBB}, false,
+		},
+		{
+			"OP_NOTIF true branch",
+			[]byte{1, 0x00, OP_NOTIF, 1, 0xCC, OP_ELSE, 1, 0xDD, OP_ENDIF},
+			[]byte{0xCC}, false,
+		},
+		{
+			"OP_NOTIF false branch",
+			[]byte{1, 0x01, OP_NOTIF, 1, 0xCC, OP_ELSE, 1, 0xDD, OP_ENDIF},
+			[]byte{0xDD}, false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vm := New(&signer)
+			err := vm.Run(tc.script, tx)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				}
+				return
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if tc.want != nil {
+				res, err := vm.stack.Pop()
+				if err != nil {
+					t.Errorf("stack error: %v", err)
+				}
+				if !bytes.Equal(res, tc.want) {
+					t.Errorf("expected %x, got %x", tc.want, res)
+				}
+			}
+		})
+	}
+}
