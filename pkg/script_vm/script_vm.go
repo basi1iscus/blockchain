@@ -145,19 +145,19 @@ func (v *vm) Execute(script []byte, tx transaction.Transaction) error {
 		case script[pointer] >= OP_PUSHDATA0_01 && script[pointer] <= OP_PUSHDATA0_4B:
 			dataLength = int(script[pointer])
 			inc = dataLength + 1
-			v.stack.Push(script[pointer+1 : pointer+inc])
+			v.stack.Push(script[pointer+1 : pointer+1+dataLength])
 		case script[pointer] == OP_PUSHDATA1:
 			dataLength = int(script[pointer+1])
-			inc = dataLength + 1
-			v.stack.Push(script[pointer+1 : pointer+inc])
+			inc = dataLength + 2
+			v.stack.Push(script[pointer+2 : pointer+2+dataLength])
 		case script[pointer] == OP_PUSHDATA2:
 			dataLength = int(script[pointer+1]) | int(script[pointer+2])<<8
-			inc = dataLength + 2
-			v.stack.Push(script[pointer+2 : pointer+inc])
+			inc = dataLength + 3
+			v.stack.Push(script[pointer+3 : pointer+3+dataLength])
 		case script[pointer] == OP_PUSHDATA4:
-			dataLength = int(script[pointer+1]) | int(script[pointer+2])<<8 | int(script[pointer+3])<<16 | int(script[pointer+4])<<32
-			inc = dataLength + 4
-			v.stack.Push(script[pointer+2 : pointer+inc])
+			dataLength = int(script[pointer+1]) | int(script[pointer+2])<<8 | int(script[pointer+3])<<16 | int(script[pointer+4])<<24
+			inc = dataLength + 5
+			v.stack.Push(script[pointer+5 : pointer+5+dataLength])
 		case script[pointer] == OP_NOP:
 		case script[pointer] == OP_IFDUP:
 			top, err := v.stack.Pick()

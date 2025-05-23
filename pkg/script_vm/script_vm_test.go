@@ -82,3 +82,73 @@ func TestVM_P2PKH(t *testing.T) {
 		t.Errorf("expected OP_TRUE, got %x", result)
 	}
 }
+
+func TestVM_AllOpcodes(t *testing.T) {
+	signer := sign_ed25519.Ed25519Signer{}
+	keys, err := signer.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("failed to generate key pair: %v", err)
+	}
+	prefix := []byte{0x00}
+	w, err := wallet.CreateWallet(keys, prefix)
+	if err != nil {
+		t.Fatalf("failed to create wallet: %v", err)
+	}
+	pubKeyHash, _ := w.GetPublicKeyHash()
+	tx, _ := transaction.CreateTransaction(coin_transfer.CoinTransfer, hex.EncodeToString(pubKeyHash), 1, 1, map[string]any{"recipient": hex.EncodeToString(pubKeyHash)})
+	txid := tx.GetTxId()
+	sig, _ := signer.Sign(txid[:], keys.PrivateKey)
+	pub := keys.PublicKey
+
+	cases := []struct {
+		name   string
+		script []byte
+		want   []byte
+		wantErr bool
+	}{
+		{"OP_0", []byte{OP_0}, []byte{OP_0}, false},
+		{"OP_1NEGATE", []byte{OP_1NEGATE}, []byte{OP_1NEGATE}, false},
+		{"OP_1", []byte{OP_1}, []byte{1}, false},
+		{"OP_16", []byte{OP_16}, []byte{16}, false},
+		{"OP_PUSHDATA0_01", append([]byte{1}, []byte{0xAB}...), []byte{0xAB}, false},
+		{"OP_PUSHDATA1", []byte{OP_PUSHDATA1, 1, 0xCD}, []byte{0xCD}, false},
+		{"OP_DUP", []byte{1, 0xAA, OP_DUP}, []byte{0xAA}, false},
+		{"OP_DROP", []byte{1, 0xAA, OP_DROP}, nil, false},
+		{"OP_IFDUP_nonzero", []byte{1, 0x01, OP_IFDUP}, []byte{0x01}, false},
+		{"OP_IFDUP_zero", []byte{1, 0x00, OP_IFDUP}, []byte{0x00}, false},
+		{"OP_EQUAL_true", []byte{1, 0x01, 1, 0x01, OP_EQUAL}, []byte{OP_TRUE}, false},
+		{"OP_EQUAL_false", []byte{1, 0x01, 1, 0x02, OP_EQUAL}, []byte{OP_FALSE}, false},
+		{"OP_EQUALVERIFY_true", []byte{1, 0x01, 1, 0x01, OP_EQUALVERIFY}, nil, false},
+		{"OP_EQUALVERIFY_false", []byte{1, 0x01, 1, 0x02, OP_EQUALVERIFY}, nil, true},
+		{"OP_VERIFY_true", []byte{1, 0x01, OP_VERIFY}, nil, false},
+		{"OP_VERIFY_false", []byte{1, 0x00, OP_VERIFY}, nil, true},
+		{"OP_SHA256", []byte{1, 0x01, OP_SHA256}, nil, false},
+		{"OP_HASH160", []byte{1, 0x01, OP_HASH160}, nil, false},
+		{"OP_HASH256", []byte{1, 0x01, OP_HASH256}, nil, false},
+		{"OP_CHECKSIG_true", append(append([]byte{byte(len(sig))}, sig...), append([]byte{byte(len(pub))}, pub...)...), []byte{OP_TRUE}, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vm := New(&signer)
+			err := vm.Execute(tc.script, tx)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				}
+				return
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if tc.want != nil {
+				res, err := vm.stack.Pop()
+				if err != nil {
+					t.Errorf("stack error: %v", err)
+				}
+				if !bytes.Equal(res, tc.want) {
+					t.Errorf("expected %x, got %x", tc.want, res)
+				}
+			}
+		})
+	}
+}
