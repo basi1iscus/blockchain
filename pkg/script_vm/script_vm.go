@@ -6,7 +6,10 @@ import (
 	"blockchain_demo/pkg/utils"
 	"blockchain_demo/pkg/utils/queue"
 	"blockchain_demo/pkg/utils/stack"
+	"bufio"
+	"encoding/hex"
 	"errors"
+	"strings"
 
 	"fmt"
 	"slices"
@@ -143,6 +146,8 @@ var OpCodeNames = map[OPCode]string{
 	OP_CHECKMULTISIGVERIFY: "OP_CHECKMULTISIGVERIFY",
 }
 
+var NamesOpCode = utils.ReverseMap(OpCodeNames)
+
 type operation struct{
 	scriptCode OPCode
 	code OPCode
@@ -155,7 +160,7 @@ type branch struct{
 	parent *branch
 }
 
-type vm struct {
+type VM struct {
 	stack  *stack.Stack[[]byte]
 	mainBranch  branch
 	signer sign.Signer
@@ -170,8 +175,8 @@ func IsActive(op OPCode) bool {
 	return false
 }
 
-func New(signer sign.Signer) *vm {
-	return &vm{
+func New(signer sign.Signer) *VM {
+	return &VM{
 		stack:  stack.New[[]byte](),
 		signer: signer,
 		mainBranch: branch{queue: queue.New[operation](), parent: nil},
@@ -194,7 +199,7 @@ func compare(a, b []byte) int {
 	return 0
 }
 
-func (v *vm) equal() (bool, error) {
+func (v *VM) equal() (bool, error) {
 	a, err := v.stack.Pop()
 	if err != nil {
 		return false, err
@@ -206,7 +211,7 @@ func (v *vm) equal() (bool, error) {
 	return compare(a, b) == 0, nil
 }
 
-func (v *vm) checksig(data []byte) (bool, error) {
+func (v *VM) checksig(data []byte) (bool, error) {
 	pubKey, err := v.stack.Pop()
 	if err != nil {
 		return false, err
@@ -219,7 +224,7 @@ func (v *vm) checksig(data []byte) (bool, error) {
 	return v.signer.Verify(data, signature, pubKey)
 }
 
-func (v *vm) checkmultisig(data []byte) (bool, error) {
+func (v *VM) checkmultisig(data []byte) (bool, error) {
 	count, err := v.stack.Pop()
 	if err != nil {
 		return false, err
@@ -258,7 +263,7 @@ func (v *vm) checkmultisig(data []byte) (bool, error) {
 	return true, nil
 }
 
-func (v *vm) ParseScript(script []byte) error {
+func (v *VM) ParseScript(script []byte) error {
 	pointer := 0
 	currentBranch := &v.mainBranch
 	for pointer < len(script) {
@@ -318,7 +323,61 @@ func (v *vm) ParseScript(script []byte) error {
 	return nil
 }
 
-func (v *vm) Run(script []byte, tx transaction.Transaction) error {
+func Compile(op OPCode, data []byte) ([]byte, error) {
+	if op == OP_PUSHDATA && len(data) == 0 {
+		return nil, errors.New("OP_PUSHDATA cannot be used with empty data")
+	} else if op == OP_PUSHDATA && len(data) == 1 && data[0] <= 16 {
+		// If data is a single byte between 0 and 16, use the corresponding OP_1 to OP_16
+		return []byte{byte(OP_1 + data[0] - 1)}, nil
+	} else if op == OP_PUSHDATA && len(data) <= OP_PUSHDATA_4B {
+		return append([]byte{byte(len(data))}, data...), nil
+	} else if (op == OP_PUSHDATA || op == OP_PUSHDATA1) && len(data) <= 0xFF {
+		return append([]byte{OP_PUSHDATA1, byte(len(data))}, data...), nil
+	} else if (op == OP_PUSHDATA || op == OP_PUSHDATA2) && len(data) <= 0xFFFF {
+		return append([]byte{OP_PUSHDATA2, byte(len(data)), byte(len(data) >> 8)}, data...), nil
+	} else if (op == OP_PUSHDATA4 || op == OP_PUSHDATA2) && len(data) <= 0xFFFFFFFF {
+		return append([]byte{OP_PUSHDATA4, byte(len(data)), byte(len(data) >> 8), byte(len(data) >> 16), byte(len(data) >> 24)}, data...), nil
+	} else if op == OP_PUSHDATA || op == OP_PUSHDATA1 || op == OP_PUSHDATA2 || op == OP_PUSHDATA4 {
+		return nil, fmt.Errorf("data length %d exceeds maximum allowed for opcode %s", len(data), OpCodeNames[op])
+	}
+	return []byte{byte(op)}, nil
+}
+
+func (v *VM) ParseString(s string) ([]byte, error) {
+	row := 1
+	script := make([]byte, 0)
+	scanner := bufio.NewScanner(strings.NewReader(s))
+	for scanner.Scan() {
+		line := scanner.Text()
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue // Skip empty lines and comments
+		}
+		result := strings.Split(line, " ")
+		op := result[0]
+		var data []byte
+		if len(result) > 1 {
+			var err error
+			data, err = hex.DecodeString(result[1])
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode hex data in row %v: %w", row, err)
+			}
+		}
+		opCode, ok := NamesOpCode[op]
+		if !ok {	
+			return nil, fmt.Errorf("failed to decode hex data in row %v: %s", row, op)
+		}
+		scriptOp, err := Compile(opCode, data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compile opcode %s in row %v: %w", op, row, err)
+		}
+		script = append(script, scriptOp...)
+		row++
+	}	
+	return script, nil
+}
+
+func (v *VM) Run(script []byte, tx transaction.Transaction) error {
 	err := v.ParseScript(script)
 	if err != nil {
 		return err
@@ -330,7 +389,7 @@ func (v *vm) Run(script []byte, tx transaction.Transaction) error {
 	return nil
 }
 
-func (v *vm) Execute(tx transaction.Transaction, branch *branch) error {
+func (v *VM) Execute(tx transaction.Transaction, branch *branch) error {
 	if branch == nil {
 		branch = &v.mainBranch
 	}
@@ -502,7 +561,7 @@ func (v *vm) Execute(tx transaction.Transaction, branch *branch) error {
 	return nil
 }
 
-func (v *vm) String() string {
+func (v *VM) String() string {
 
 	branch := v.mainBranch.queue.ToArray()
 	var result string
@@ -511,7 +570,7 @@ func (v *vm) String() string {
 		if !ok {
 			name = "UNKNOWN"
 		}
-		result += fmt.Sprintf("0x%X %s %x\n", op.scriptCode, name, op.data)
+		result += fmt.Sprintf("%s %x #0x%X\n", name, op.data, op.scriptCode)
 	}
 	
 	return result

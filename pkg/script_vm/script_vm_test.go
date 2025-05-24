@@ -14,9 +14,8 @@ import (
 	"time"
 )
 
-func TestVM_P2PKH(t *testing.T) {
+func PrepareVMForP2PKH(t *testing.T, signer sign.Signer) ([]byte, transaction.Transaction) {
 	// 1. Generate key pair
-	signer := sign_ed25519.Ed25519Signer{}
 	keys, err := signer.GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -68,11 +67,17 @@ func TestVM_P2PKH(t *testing.T) {
 	// 6. Concatenate scripts (as in Bitcoin: ScriptSig || ScriptPubKey)
 	fullScript := append(scriptSig, scriptPubKey...)
 
+	return fullScript, tx
+}
+
+func TestVM_P2PKH(t *testing.T) {
+	signer := sign_ed25519.Ed25519Signer{}
+	fullScript, tx := PrepareVMForP2PKH(t, signer) 
 	// 7. Run VM
 	vm := New(&signer)
-	err = vm.ParseScript(fullScript)
+	err := vm.ParseScript(fullScript)
 	if err != nil {
-		t.Fatalf("VM failed: %v", err)
+		t.Fatalf("failed to parse script: %v", err)
 	}
 	fmt.Println("Parsed script:")
 	fmt.Println(vm)
@@ -279,4 +284,224 @@ func TestVM_CheckMultiSig(t *testing.T) {
 	if !bytes.Equal(res, []byte{OP_TRUE}) {
 		t.Errorf("expected OP_TRUE, got %x", res)
 	}
+}
+func TestVM_ParseString_BasicOpcodes(t *testing.T) {
+	signer := sign_ed25519.Ed25519Signer{}
+	vm := New(&signer)
+
+	cases := []struct {
+		name     string
+		input    string
+		expected []byte
+		wantErr  bool
+	}{
+		{
+			"OP_0",
+			"OP_0",
+			[]byte{OP_0},
+			false,
+		},
+		{
+			"OP_1NEGATE",
+			"OP_1NEGATE",
+			[]byte{OP_1NEGATE},
+			false,
+		},
+		{
+			"OP_1",
+			"OP_1",
+			[]byte{OP_1},
+			false,
+		},
+		{
+			"OP_16",
+			"OP_16",
+			[]byte{OP_16},
+			false,
+		},
+		{
+			"OP_PUSHDATA with hex data",
+			fmt.Sprintf("OP_PUSHDATA %x", []byte{0xAB, 0xCD}),
+			append([]byte{2}, []byte{0xAB, 0xCD}...),
+			false,
+		},
+		{
+			"OP_DUP",
+			"OP_DUP",
+			[]byte{OP_DUP},
+			false,
+		},
+		{
+			"OP_HASH160",
+			"OP_HASH160",
+			[]byte{OP_HASH160},
+			false,
+		},
+		{
+			"OP_EQUALVERIFY",
+			"OP_EQUALVERIFY",
+			[]byte{OP_EQUALVERIFY},
+			false,
+		},
+		{
+			"OP_CHECKSIG",
+			"OP_CHECKSIG",
+			[]byte{OP_CHECKSIG},
+			false,
+		},
+		{
+			"Unknown opcode",
+			"OP_UNKNOWN",
+			nil,
+			true,
+		},
+		{
+			"Invalid hex data",
+			"OP_PUSHDATA ZZZZ",
+			nil,
+			true,
+		},
+		{
+			"Comment and whitespace",
+			`
+			# This is a comment
+			OP_1
+			# Another comment
+			OP_DUP
+			`,
+			[]byte{OP_1, OP_DUP},
+			false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := vm.ParseString(tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if !bytes.Equal(got, tc.expected) {
+				t.Errorf("expected %x, got %x", tc.expected, got)
+			}
+		})
+	}
+}
+
+func TestVM_ParseString_IfElseBranch(t *testing.T) {
+	signer := sign_ed25519.Ed25519Signer{}
+	vm := New(&signer)
+
+	scriptStr := `
+		OP_1
+		OP_IF
+			OP_2
+		OP_ELSE
+			OP_3
+		OP_ENDIF
+	`
+	scriptBytes, err := vm.ParseString(scriptStr)
+	if err != nil {
+		t.Fatalf("ParseString failed: %v", err)
+	}
+	// Should parse to: OP_1 OP_IF OP_2 OP_ELSE OP_3 OP_ENDIF
+	expected := []byte{OP_1, OP_IF, OP_2, OP_ELSE, OP_3, OP_ENDIF}
+	if !bytes.Equal(scriptBytes, expected) {
+		t.Errorf("expected %x, got %x", expected, scriptBytes)
+	}
+}
+
+func TestVM_ParseString_CompilePushdata1(t *testing.T) {
+	signer := sign_ed25519.Ed25519Signer{}
+	vm := New(&signer)
+	// Data > 0x4B triggers OP_PUSHDATA1
+	data := make([]byte, 0x4C)
+	for i := range data {
+		data[i] = byte(i)
+	}
+	scriptStr := fmt.Sprintf("OP_PUSHDATA %x", data)
+	scriptBytes, err := vm.ParseString(scriptStr)
+	if err != nil {
+		t.Fatalf("ParseString failed: %v", err)
+	}
+	// Should start with OP_PUSHDATA1, length, then data
+	if len(scriptBytes) < 2+len(data) {
+		t.Fatalf("script too short")
+	}
+	if scriptBytes[0] != OP_PUSHDATA1 || scriptBytes[1] != byte(len(data)) {
+		t.Errorf("expected OP_PUSHDATA1 and length, got %x %x", scriptBytes[0], scriptBytes[1])
+	}
+	if !bytes.Equal(scriptBytes[2:], data) {
+		t.Errorf("data mismatch")
+	}
+}
+
+func TestVM_String_ParseString_RoundTrip(t *testing.T) {
+	signer := sign_ed25519.Ed25519Signer{}
+	vm := New(&signer)
+	// Compose a script with various opcodes and data
+	pubKeyHash := make([]byte, 20)
+	for i := range pubKeyHash {
+		pubKeyHash[i] = byte(i + 1)
+	}
+	script := []byte{
+		OP_DUP,
+		OP_HASH160,
+		byte(len(pubKeyHash)),
+	}
+	script = append(script, pubKeyHash...)
+	script = append(script, OP_EQUALVERIFY, OP_CHECKSIG)
+
+	// Parse the script into VM
+	err := vm.ParseScript(script)
+	if err != nil {
+		t.Fatalf("ParseScript failed: %v", err)
+	}
+	// Get string representation
+	str := vm.String()
+
+	// Now parse back using ParseString
+	vm2 := New(&signer)
+	parsed, err := vm2.ParseString(str)
+	if err != nil {
+		t.Fatalf("ParseString failed: %v", err)
+	}
+	if !bytes.Equal(parsed, script) {
+		t.Errorf("expected %x, got %x", script, parsed)
+	}
+}
+
+func TestVM_Parse_And_Compile(t *testing.T) {
+	signer := sign_ed25519.Ed25519Signer{}	
+
+	script, tx := PrepareVMForP2PKH(t, signer) 
+	// 7. Run VM
+	vm := New(&signer)
+	err := vm.ParseScript(script)
+	if err != nil {
+		t.Fatalf("failed to parse script: %v", err)
+	}
+	// Get string representation
+	str := vm.String()
+	vm2 := New(&signer)
+	parsed, err := vm2.ParseString(str)
+	if err != nil {
+		t.Fatalf("ParseString failed: %v", err)
+	}
+	if !bytes.Equal(parsed, script) {
+		t.Errorf("expected %x, got %x", script, parsed)
+	}
+
+	fmt.Println("Parsed script:")
+	fmt.Println(vm)
+	err = vm2.Execute(tx, nil)
+	if err != nil {
+		t.Fatalf("VM failed: %v", err)
+	}	
 }

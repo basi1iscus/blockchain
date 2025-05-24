@@ -129,3 +129,11 @@ func GetEnumValueFromParam[T any](params map[string]any, field string, isValid f
 	}
 	return enumValue, nil
 }
+
+func ReverseMap[T comparable, K comparable](m map[K]T) map[T]K {
+	reversed := make(map[T]K)
+	for k, v := range m {
+		reversed[v] = k
+	}
+	return reversed
+}
