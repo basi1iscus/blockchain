@@ -2,7 +2,6 @@ package script_vm
 
 import (
 	"blockchain_demo/pkg/sign"
-	"blockchain_demo/pkg/transaction"
 	"blockchain_demo/pkg/utils"
 	"blockchain_demo/pkg/utils/queue"
 	"blockchain_demo/pkg/utils/stack"
@@ -377,19 +376,19 @@ func (v *VM) ParseString(s string) ([]byte, error) {
 	return script, nil
 }
 
-func (v *VM) Run(script []byte, tx transaction.Transaction) error {
+func (v *VM) Run(script []byte, signedData []byte) error {
 	err := v.ParseScript(script)
 	if err != nil {
 		return err
 	}
-	err = v.Execute(tx, nil)
+	err = v.Execute(signedData, nil)
 	if err != nil {	
 		return err
 	}
 	return nil
 }
 
-func (v *VM) Execute(tx transaction.Transaction, branch *branch) error {
+func (v *VM) Execute(signedData []byte, branch *branch) error {
 	if branch == nil {
 		branch = &v.mainBranch
 	}
@@ -405,7 +404,7 @@ func (v *VM) Execute(tx transaction.Transaction, branch *branch) error {
 			}
 			lastIf = compare(top, make([]byte, len(top))) != 0
 			if lastIf {
-				err = v.Execute(tx, &op.childBranch)
+				err = v.Execute(signedData, &op.childBranch)
 				if err != nil {
 					return err
 				}
@@ -417,14 +416,14 @@ func (v *VM) Execute(tx transaction.Transaction, branch *branch) error {
 			}
 			lastIf = compare(top, make([]byte, len(top))) == 0
 			if lastIf {
-				err = v.Execute(tx, &op.childBranch)
+				err = v.Execute(signedData, &op.childBranch)
 				if err != nil {
 					return err
 				}
 			}
 		case OP_ELSE:
 			if !lastIf {
-				err := v.Execute(tx, &op.childBranch)
+				err := v.Execute(signedData, &op.childBranch)
 				if err != nil {
 					return err
 				}
@@ -517,8 +516,7 @@ func (v *VM) Execute(tx transaction.Transaction, branch *branch) error {
 			}
 			v.stack.Push(hash256)
 		case OP_CHECKSIG:
-			txid := tx.GetTxId()
-			ok, err := v.checksig(txid[:])
+			ok, err := v.checksig(signedData)
 			if err != nil {
 				return err
 			}
@@ -528,8 +526,7 @@ func (v *VM) Execute(tx transaction.Transaction, branch *branch) error {
 				v.stack.Push([]byte{OP_FALSE})
 			}
 		case OP_CHECKSIGVERIFY:
-			txid := tx.GetTxId()
-			ok, err := v.checksig(txid[:])
+			ok, err := v.checksig(signedData)
 			if err != nil {
 				return err
 			}
@@ -537,8 +534,7 @@ func (v *VM) Execute(tx transaction.Transaction, branch *branch) error {
 				return errors.New("checksig verify failed")
 			}
 		case OP_CHECKMULTISIG:
-			txid := tx.GetTxId()
-			ok, err := v.checkmultisig(txid[:])
+			ok, err := v.checkmultisig(signedData)
 			if err != nil {
 				return err
 			}
@@ -548,8 +544,7 @@ func (v *VM) Execute(tx transaction.Transaction, branch *branch) error {
 				v.stack.Push([]byte{OP_FALSE})
 			}
 		case OP_CHECKMULTISIGVERIFY:
-			txid := tx.GetTxId()
-			ok, err := v.checkmultisig(txid[:])
+			ok, err := v.checkmultisig(signedData)
 			if err != nil {
 				return err
 			}
@@ -571,6 +566,16 @@ func (v *VM) String() string {
 			name = "UNKNOWN"
 		}
 		result += fmt.Sprintf("%s %x #0x%X\n", name, op.data, op.scriptCode)
+	}
+	
+	return result
+}
+
+func (v *VM) GetStack() []string {
+	result := make([]string, 0, v.stack.Size())
+	stack := v.stack.ToArray()
+	for _, op := range stack {
+		result = append(result, hex.EncodeToString(op))
 	}
 	
 	return result

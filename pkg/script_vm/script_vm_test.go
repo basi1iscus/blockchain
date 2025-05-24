@@ -5,6 +5,7 @@ import (
 	"blockchain_demo/pkg/sign/sign_ed25519"
 	"blockchain_demo/pkg/transaction"
 	"blockchain_demo/pkg/transaction/coin_transfer"
+	"blockchain_demo/pkg/utils"
 	"blockchain_demo/pkg/wallet"
 	"bytes"
 	"encoding/hex"
@@ -79,9 +80,11 @@ func TestVM_P2PKH(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to parse script: %v", err)
 	}
+	signedData := tx.GetTxId()
+	fmt.Printf("Check hash: %#x\n", signedData)
 	fmt.Println("Parsed script:")
 	fmt.Println(vm)
-	err = vm.Execute(tx, nil)
+	err = vm.Execute(signedData[:], nil)
 	if err != nil {
 		t.Fatalf("VM failed: %v", err)
 	}	
@@ -144,7 +147,8 @@ func TestVM_AllOpcodes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			vm := New(&signer)
-			err := vm.Run(tc.script, tx)
+			signedData := tx.GetTxId()
+			err := vm.Run(tc.script, signedData[:])
 			if tc.wantErr {
 				if err == nil {
 					t.Errorf("expected error, got nil")
@@ -169,7 +173,7 @@ func TestVM_AllOpcodes(t *testing.T) {
 func TestVM_IfElse(t *testing.T) {
 	signer := sign_ed25519.Ed25519Signer{}
 	// keys, err := signer.GenerateKeyPair() // not needed for these tests
-	tx, _ := transaction.CreateTransaction(coin_transfer.CoinTransfer, "", 1, 1, nil)
+	tx, _ := utils.GetHash([]byte("dummy transaction for testing if/else"))
 
 	cases := []struct {
 		name   string
@@ -273,7 +277,8 @@ func TestVM_CheckMultiSig(t *testing.T) {
 	script = append(script, OP_CHECKMULTISIG)
 
 	vm := New(&signer)
-	err = vm.Run(script, tx)
+	signedData := tx.GetTxId()
+	err = vm.Run(script, signedData[:])
 	if err != nil {
 		t.Fatalf("VM failed: %v", err)
 	}
@@ -500,7 +505,8 @@ func TestVM_Parse_And_Compile(t *testing.T) {
 
 	fmt.Println("Parsed script:")
 	fmt.Println(vm)
-	err = vm2.Execute(tx, nil)
+	signedData := tx.GetTxId()
+	err = vm2.Execute(signedData[:], nil)
 	if err != nil {
 		t.Fatalf("VM failed: %v", err)
 	}	

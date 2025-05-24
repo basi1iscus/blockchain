@@ -63,7 +63,7 @@ func ValidateAddress(pubKey []byte, prefix []byte, address string) error {
 func (w Wallet) GetPublicKeyHash() ([]byte, error) {
 	hashed, err := utils.GetHash(w.Keys.PublicKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create wallet: %v", err)
+		return nil, fmt.Errorf("failed to create hash: %v", err)
 	}
 
 	hasher := ripemd160.New()

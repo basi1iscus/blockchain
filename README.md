@@ -97,6 +97,34 @@ When constructing a blockchain, you must now provide:
 - Provides iterator support for idiomatic Go iteration.
 - Fully unit tested.
 
+## API Endpoints
+
+The demo provides a simple HTTP API using [Gin](https://github.com/gin-gonic/gin):
+
+### POST `/api/wallet`
+- **Description:** Create a new wallet (Ed25519 keypair, address, public key hash).
+- **Response:**
+  - `address`: Wallet address (Base58)
+  - `public_key`: Public key (hex)
+  - `public_key_hash`: Public key hash (hex)
+  - `private_key`: Private key (hex)
+
+### POST `/api/run_sript`
+- **Description:** Run a script using the Script VM. Accepts a scriptSig, scriptPubKey, and signed data, executes the script, and returns the parsed script code.
+- **Request JSON:**
+  - `script_sig`: ScriptSig as hex string
+  - `script_pub_key`: ScriptPubKey as hex string
+  - `signed_data`: Data to be verified (hex string)
+- **Response:**
+  - Returns the parsed script code as a string (or error message if execution fails).
+
+### GET `/ping`
+- **Description:** Health check endpoint. Returns `{ "message": "pong" }`.
+
+---
+
+You can use tools like [Postman](https://www.postman.com/) or `curl` to interact with these endpoints.
+
 ## License
 
 MIT License
