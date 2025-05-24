@@ -23,6 +23,23 @@ func New[T any]() *Queue[T] {
 	}
 }
 
+func FromArray[T any](items []T) *Queue[T] {
+	q := New[T]()
+	for _, item := range items {
+		q.Enqueue(item)
+	}
+
+	return q
+}
+
+func (s *Queue[T]) ToArray() []T {
+	arr := make([]T, 0, s.size)
+	for node := s.head; node != nil; node = node.next {
+		arr = append(arr, node.value)
+	}
+	return arr
+}
+
 func (s *Queue[T]) Enqueue(v T) {
 	node := &node[T]{
 		value: v,

@@ -8,6 +8,7 @@ import (
 	"blockchain_demo/pkg/wallet"
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -69,10 +70,16 @@ func TestVM_P2PKH(t *testing.T) {
 
 	// 7. Run VM
 	vm := New(&signer)
-	err = vm.Run(fullScript, tx)
+	err = vm.ParseScript(fullScript)
 	if err != nil {
 		t.Fatalf("VM failed: %v", err)
 	}
+	fmt.Println("Parsed script:")
+	fmt.Println(vm)
+	err = vm.Execute(tx, nil)
+	if err != nil {
+		t.Fatalf("VM failed: %v", err)
+	}	
 
 	// 8. Check result (should be OP_TRUE on stack)
 	result, err := vm.stack.Pop()

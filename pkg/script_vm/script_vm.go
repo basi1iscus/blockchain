@@ -7,6 +7,7 @@ import (
 	"blockchain_demo/pkg/utils/queue"
 	"blockchain_demo/pkg/utils/stack"
 	"errors"
+
 	"fmt"
 	"slices"
 )
@@ -97,36 +98,53 @@ const (
 	OP_CHECKMULTISIGVERIFY = 0xAF //	OP_CHECKMULTISIG + OP_VERIFY
 )
 
-var ActiveCodes = [...]OPCode{
-	OP_FALSE,
-	OP_TRUE,
-	OP_0,
-	OP_1NEGATE,
-	OP_1,
-	OP_2, OP_3, OP_4, OP_5, OP_6, OP_7, OP_8, OP_9, OP_10, OP_11, OP_12, OP_13, OP_14, OP_15, OP_16,
-	OP_PUSHDATA, OP_PUSHDATA_4B, OP_PUSHDATA1, OP_PUSHDATA2, OP_PUSHDATA4,
-	OP_NOP,
-	OP_IFDUP,
-	OP_DROP,
-	OP_DUP,
-	OP_EQUAL,
-	OP_EQUALVERIFY,
-	OP_VERIFY,
-	OP_SHA256,
-	OP_HASH160,
-	OP_HASH256,
-	OP_CHECKSIG,
-	OP_CHECKSIGVERIFY,
-	OP_IF,
-	OP_NOTIF,
-	OP_ELSE,
-	OP_ENDIF,
-	OP_RETURN,
-	OP_CHECKMULTISIG,
-	OP_CHECKMULTISIGVERIFY,
+var OpCodeNames = map[OPCode]string{
+	OP_0:                   "OP_0",
+	OP_1NEGATE:             "OP_1NEGATE",
+	OP_1:                   "OP_1",
+	OP_2:                   "OP_2",
+	OP_3:                   "OP_3",
+	OP_4:                   "OP_4",
+	OP_5:                   "OP_5",
+	OP_6:                   "OP_6",
+	OP_7:                   "OP_7",
+	OP_8:                   "OP_8",
+	OP_9:                   "OP_9",
+	OP_10:                  "OP_10",
+	OP_11:                  "OP_11",
+	OP_12:                  "OP_12",
+	OP_13:                  "OP_13",
+	OP_14:                  "OP_14",
+	OP_15:                  "OP_15",
+	OP_16:                  "OP_16",
+	OP_PUSHDATA:            "OP_PUSHDATA",
+	OP_PUSHDATA_4B:         "OP_PUSHDATA_4B",
+	OP_PUSHDATA1:           "OP_PUSHDATA1",
+	OP_PUSHDATA2:           "OP_PUSHDATA2",
+	OP_PUSHDATA4:           "OP_PUSHDATA4",
+	OP_NOP:                 "OP_NOP",
+	OP_IFDUP:               "OP_IFDUP",
+	OP_DROP:                "OP_DROP",
+	OP_DUP:                 "OP_DUP",
+	OP_EQUAL:               "OP_EQUAL",
+	OP_EQUALVERIFY:         "OP_EQUALVERIFY",
+	OP_VERIFY:              "OP_VERIFY",
+	OP_SHA256:              "OP_SHA256",
+	OP_HASH160:             "OP_HASH160",
+	OP_HASH256:             "OP_HASH256",
+	OP_CHECKSIG:            "OP_CHECKSIG",
+	OP_CHECKSIGVERIFY:      "OP_CHECKSIGVERIFY",
+	OP_IF:                  "OP_IF",
+	OP_NOTIF:               "OP_NOTIF",
+	OP_ELSE:                "OP_ELSE",
+	OP_ENDIF:               "OP_ENDIF",
+	OP_RETURN:              "OP_RETURN",
+	OP_CHECKMULTISIG:       "OP_CHECKMULTISIG",
+	OP_CHECKMULTISIGVERIFY: "OP_CHECKMULTISIGVERIFY",
 }
 
 type operation struct{
+	scriptCode OPCode
 	code OPCode
 	data []byte
 	childBranch branch
@@ -144,8 +162,8 @@ type vm struct {
 }
 
 func IsActive(op OPCode) bool {
-	for _, activeOp := range ActiveCodes {
-		if op == activeOp {
+	for key := range OpCodeNames {
+		if op == key {
 			return true
 		}
 	}
@@ -240,58 +258,59 @@ func (v *vm) checkmultisig(data []byte) (bool, error) {
 	return true, nil
 }
 
-func (v *vm) Precompile(script []byte) error {
+func (v *vm) ParseScript(script []byte) error {
 	pointer := 0
 	currentBranch := &v.mainBranch
 	for pointer < len(script) {
 		inc := 1
 		dataLength := 0
+		opCode := OPCode(script[pointer])
 		switch {
-		case script[pointer] == byte(OP_0):
-			currentBranch.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer : pointer+1]})
-		case script[pointer] == OP_1NEGATE:
-			currentBranch.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer : pointer+1]})
-		case script[pointer] >= OP_1 && script[pointer] <= OP_16:
-			currentBranch.queue.Enqueue(operation{code: OP_PUSHDATA, data: []byte{script[pointer] - OP_1 + 1}})
-		case script[pointer] >= OP_PUSHDATA && script[pointer] <= OP_PUSHDATA_4B:
-			dataLength = int(script[pointer])
+		case opCode == OP_0:
+			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer : pointer+1]})
+		case opCode == OP_1NEGATE:
+			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer : pointer+1]})
+		case opCode >= OP_1 && opCode <= OP_16:
+			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: []byte{byte(opCode) - OP_1 + 1}})
+		case opCode >= OP_PUSHDATA && opCode <= OP_PUSHDATA_4B:
+			dataLength = int(opCode)
 			inc = dataLength + 1
-			currentBranch.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+1 : pointer+1+dataLength]})
-		case script[pointer] == OP_PUSHDATA1:
+			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer+1 : pointer+1+dataLength]})
+		case opCode == OP_PUSHDATA1:
 			dataLength = int(script[pointer+1])
 			inc = dataLength + 2
-			currentBranch.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+2 : pointer+2+dataLength]})
-		case script[pointer] == OP_PUSHDATA2:
+			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer+2 : pointer+2+dataLength]})
+		case opCode == OP_PUSHDATA2:
 			dataLength = int(script[pointer+1]) | int(script[pointer+2])<<8
 			inc = dataLength + 3
-			currentBranch.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+3 : pointer+3+dataLength]})
-		case script[pointer] == OP_PUSHDATA4:
+			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer+3 : pointer+3+dataLength]})
+		case opCode == OP_PUSHDATA4:
 			dataLength = int(script[pointer+1]) | int(script[pointer+2])<<8 | int(script[pointer+3])<<16 | int(script[pointer+4])<<24
 			inc = dataLength + 5
-			currentBranch.queue.Enqueue(operation{code: OP_PUSHDATA, data: script[pointer+5 : pointer+5+dataLength]})
-		case script[pointer] == OP_IF || script[pointer] == OP_NOTIF:
+			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer+5 : pointer+5+dataLength]})
+		case opCode == OP_IF || opCode == OP_NOTIF:
 			child := branch{queue: queue.New[operation](), parent: currentBranch}
-			currentBranch.queue.Enqueue(operation{code: OPCode(script[pointer]), data: nil, childBranch: child})
+			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: opCode, data: nil, childBranch: child})
 			currentBranch = &child
-		case script[pointer] == OP_ELSE:
+		case opCode == OP_ELSE:
 			parent := currentBranch.parent
 			if parent == nil {
 				return errors.New("else without if")
 			}
 			child := branch{queue: queue.New[operation](), parent: parent}
-			parent.queue.Enqueue(operation{code: OP_ELSE, data: nil, childBranch: child})
+			parent.queue.Enqueue(operation{scriptCode: opCode, code: opCode, data: nil, childBranch: child})
 			currentBranch = &child
-		case script[pointer] == OP_ENDIF:
+		case opCode == OP_ENDIF:
 			parent := currentBranch.parent
 			if parent == nil {
 				return errors.New("endif without if")
 			}
 			currentBranch = parent
-			currentBranch.queue.Enqueue(operation{code: OP_ENDIF, data: nil})
-		case IsActive(OPCode(script[pointer])):
-			currentBranch.queue.Enqueue(operation{code: OPCode(script[pointer]), data: nil})
+			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: opCode, data: nil})
+		case IsActive(opCode):
+			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: opCode, data: nil})
 		default:
-			return fmt.Errorf("unknown opcode %#x", script[pointer])
+			return fmt.Errorf("unknown opcode %#x", opCode)
 		}
 
 		pointer += inc
@@ -300,18 +319,21 @@ func (v *vm) Precompile(script []byte) error {
 }
 
 func (v *vm) Run(script []byte, tx transaction.Transaction) error {
-	err := v.Precompile(script)
+	err := v.ParseScript(script)
 	if err != nil {
 		return err
 	}
-	err = v.Execute(v.mainBranch, tx)
+	err = v.Execute(tx, nil)
 	if err != nil {	
 		return err
 	}
 	return nil
 }
 
-func (v *vm) Execute(branch branch, tx transaction.Transaction) error {
+func (v *vm) Execute(tx transaction.Transaction, branch *branch) error {
+	if branch == nil {
+		branch = &v.mainBranch
+	}
 	var lastIf bool
 	for op := range branch.queue.Iterator() {
 		switch (op.code) {
@@ -324,7 +346,7 @@ func (v *vm) Execute(branch branch, tx transaction.Transaction) error {
 			}
 			lastIf = compare(top, make([]byte, len(top))) != 0
 			if lastIf {
-				err = v.Execute(op.childBranch, tx)
+				err = v.Execute(tx, &op.childBranch)
 				if err != nil {
 					return err
 				}
@@ -336,14 +358,14 @@ func (v *vm) Execute(branch branch, tx transaction.Transaction) error {
 			}
 			lastIf = compare(top, make([]byte, len(top))) == 0
 			if lastIf {
-				err = v.Execute(op.childBranch, tx)
+				err = v.Execute(tx, &op.childBranch)
 				if err != nil {
 					return err
 				}
 			}
 		case OP_ELSE:
 			if !lastIf {
-				err := v.Execute(op.childBranch, tx)
+				err := v.Execute(tx, &op.childBranch)
 				if err != nil {
 					return err
 				}
@@ -478,4 +500,19 @@ func (v *vm) Execute(branch branch, tx transaction.Transaction) error {
 		}
 	}
 	return nil
+}
+
+func (v *vm) String() string {
+
+	branch := v.mainBranch.queue.ToArray()
+	var result string
+	for _, op := range branch {
+		name, ok := OpCodeNames[op.code]
+		if !ok {
+			name = "UNKNOWN"
+		}
+		result += fmt.Sprintf("0x%X %s %x\n", op.scriptCode, name, op.data)
+	}
+	
+	return result
 }

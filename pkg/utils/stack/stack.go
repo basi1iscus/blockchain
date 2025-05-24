@@ -19,6 +19,23 @@ func New[T any]() *Stack[T] {
 	}
 }
 
+func FromArray[T any](items []T) *Stack[T] {
+	s := New[T]()
+	for _, item := range items {
+		s.Push(item)
+	}
+
+	return s
+}
+
+func (s *Stack[T]) ToArray() []T {
+	arr := make([]T, 0, s.size)
+	for node := s.top; node != nil; node = node.prev {
+		arr = append(arr, node.value)
+	}
+	return arr
+}
+
 func (s *Stack[T]) Push(v T) {
 	node := &node[T]{
 		value: v,
