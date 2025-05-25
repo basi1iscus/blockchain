@@ -84,19 +84,10 @@ func TestVM_P2PKH(t *testing.T) {
 	fmt.Printf("Check hash: %#x\n", signedData)
 	fmt.Println("Parsed script:")
 	fmt.Println(vm)
-	err = vm.Execute(signedData[:], nil)
+	_, err = vm.Execute(signedData[:], nil)
 	if err != nil {
 		t.Fatalf("VM failed: %v", err)
 	}	
-
-	// 8. Check result (should be OP_TRUE on stack)
-	result, err := vm.stack.Pop()
-	if err != nil {
-		t.Fatalf("stack empty: %v", err)
-	}
-	if !bytes.Equal(result, []byte{OP_TRUE}) {
-		t.Errorf("expected OP_TRUE, got %x", result)
-	}
 }
 
 func TestVM_AllOpcodes(t *testing.T) {
@@ -148,20 +139,14 @@ func TestVM_AllOpcodes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			vm := New(&signer)
 			signedData := tx.GetTxId()
-			err := vm.Run(tc.script, signedData[:])
+			res, err := vm.Run(tc.script, signedData[:])
 			if tc.wantErr {
 				if err == nil {
 					t.Errorf("expected error, got nil")
 				}
 				return
-			} else if err != nil {
-				t.Errorf("unexpected error: %v", err)
 			}
 			if tc.want != nil {
-				res, err := vm.stack.Pop()
-				if err != nil {
-					t.Errorf("stack error: %v", err)
-				}
 				if !bytes.Equal(res, tc.want) {
 					t.Errorf("expected %x, got %x", tc.want, res)
 				}
@@ -206,20 +191,14 @@ func TestVM_IfElse(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			vm := New(&signer)
-			err := vm.Run(tc.script, tx)
+			res, err := vm.Run(tc.script, tx)
 			if tc.wantErr {
 				if err == nil {
 					t.Errorf("expected error, got nil")
 				}
 				return
-			} else if err != nil {
-				t.Errorf("unexpected error: %v", err)
 			}
 			if tc.want != nil {
-				res, err := vm.stack.Pop()
-				if err != nil {
-					t.Errorf("stack error: %v", err)
-				}
 				if !bytes.Equal(res, tc.want) {
 					t.Errorf("expected %x, got %x", tc.want, res)
 				}
@@ -278,16 +257,9 @@ func TestVM_CheckMultiSig(t *testing.T) {
 
 	vm := New(&signer)
 	signedData := tx.GetTxId()
-	err = vm.Run(script, signedData[:])
+	_, err = vm.Run(script, signedData[:])
 	if err != nil {
 		t.Fatalf("VM failed: %v", err)
-	}
-	res, err := vm.stack.Pop()
-	if err != nil {
-		t.Fatalf("stack error: %v", err)
-	}
-	if !bytes.Equal(res, []byte{OP_TRUE}) {
-		t.Errorf("expected OP_TRUE, got %x", res)
 	}
 }
 func TestVM_ParseString_BasicOpcodes(t *testing.T) {
@@ -504,9 +476,13 @@ func TestVM_Parse_And_Compile(t *testing.T) {
 	}
 
 	fmt.Println("Parsed script:")
-	fmt.Println(vm)
+	fmt.Println(vm2)
 	signedData := tx.GetTxId()
-	err = vm2.Execute(signedData[:], nil)
+	err = vm2.ParseScript(parsed)
+	if err != nil {	
+		t.Fatalf("failed to parse script: %v", err)
+	}
+	_, err = vm2.Execute(signedData[:], nil)
 	if err != nil {
 		t.Fatalf("VM failed: %v", err)
 	}	

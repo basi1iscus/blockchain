@@ -210,6 +210,14 @@ func (v *VM) equal() (bool, error) {
 	return compare(a, b) == 0, nil
 }
 
+func (v *VM) topTrue() (bool, []byte, error) {
+	top, err := v.stack.Pop()
+	if err != nil {
+		return false, nil, err
+	}
+	return compare(top, make([]byte, len(top))) != 0, top, nil
+}
+
 func (v *VM) checksig(data []byte) (bool, error) {
 	pubKey, err := v.stack.Pop()
 	if err != nil {
@@ -376,20 +384,21 @@ func (v *VM) ParseString(s string) ([]byte, error) {
 	return script, nil
 }
 
-func (v *VM) Run(script []byte, signedData []byte) error {
+func (v *VM) Run(script []byte, signedData []byte) ([]byte, error) {
 	err := v.ParseScript(script)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	err = v.Execute(signedData, nil)
+	res, err := v.Execute(signedData, nil)
 	if err != nil {	
-		return err
+		return res, err
 	}
-	return nil
+	return res, nil
 }
 
-func (v *VM) Execute(signedData []byte, branch *branch) error {
-	if branch == nil {
+func (v *VM) Execute(signedData []byte, workBranch *branch) ([]byte, error) {
+	branch := workBranch
+	if workBranch == nil {
 		branch = &v.mainBranch
 	}
 	var lastIf bool
@@ -398,44 +407,43 @@ func (v *VM) Execute(signedData []byte, branch *branch) error {
 		case OP_PUSHDATA:
 			v.stack.Push(op.data)
 		case OP_IF:
-			top, err := v.stack.Pop()
-			if err != nil {
-				return err
-			}
-			lastIf = compare(top, make([]byte, len(top))) != 0
-			if lastIf {
-				err = v.Execute(signedData, &op.childBranch)
+			var err error
+			lastIf, _, err = v.topTrue()
+			if err == nil && lastIf {
+				_, err = v.Execute(signedData, &op.childBranch)
 				if err != nil {
-					return err
+					return nil, err
 				}
+			} else if err != nil {
+				return nil, err
 			}
 		case OP_NOTIF:
-			top, err := v.stack.Pop()
-			if err != nil {
-				return err
-			}
-			lastIf = compare(top, make([]byte, len(top))) == 0
-			if lastIf {
-				err = v.Execute(signedData, &op.childBranch)
+			var err error
+			lastIf, _, err = v.topTrue()
+			lastIf = !lastIf
+			if err == nil && lastIf {
+				_, err = v.Execute(signedData, &op.childBranch)
 				if err != nil {
-					return err
+					return nil, err
 				}
+			} else if err != nil {
+				return nil, err
 			}
 		case OP_ELSE:
 			if !lastIf {
-				err := v.Execute(signedData, &op.childBranch)
+				_, err := v.Execute(signedData, &op.childBranch)
 				if err != nil {
-					return err
+					return nil, err
 				}
 			}
 		case OP_ENDIF:
 		case OP_NOP:
 		case OP_RETURN:
-			return errors.New("return opcode encountered")
+			return nil, errors.New("return opcode encountered")
 		case OP_IFDUP:
 			top, err := v.stack.Pick()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if compare(top, make([]byte, len(top))) != 0 {
 				v.stack.Push(top)
@@ -443,18 +451,18 @@ func (v *VM) Execute(signedData []byte, branch *branch) error {
 		case OP_DROP:
 			_, err := v.stack.Pop()
 			if err != nil {
-				return err
+				return nil, err
 			}
 		case OP_DUP:
 			top, err := v.stack.Pick()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			v.stack.Push(top)
 		case OP_EQUAL:
 			eq, err := v.equal()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if eq {
 				v.stack.Push([]byte{OP_TRUE})
@@ -464,61 +472,57 @@ func (v *VM) Execute(signedData []byte, branch *branch) error {
 		case OP_EQUALVERIFY:
 			eq, err := v.equal()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if !eq {
-				return errors.New("equal verify failed")
+				return nil, errors.New("equal verify failed")
 			}
 		case OP_VERIFY:
-			top, err := v.stack.Pop()
-			if err != nil {
-				return err
-			}
-			if compare(top, make([]byte, len(top))) == 0 {
-				return errors.New("verify failed")
-			}
+			if ok, _, err := v.topTrue(); err == nil || !ok {
+				return nil, fmt.Errorf("verify failed")
+			}			
 		case OP_SHA256:
 			top, err := v.stack.Pop()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			hash, err := utils.GetHash(top)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			v.stack.Push(hash)
 		case OP_HASH160:
 			top, err := v.stack.Pop()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			hash, err := utils.GetHash(top)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			hash160, err := utils.GetHash160(nil, hash)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			v.stack.Push(hash160)
 		case OP_HASH256:
 			top, err := v.stack.Pop()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			hash, err := utils.GetHash(top)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			hash256, err := utils.GetHash(hash)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			v.stack.Push(hash256)
 		case OP_CHECKSIG:
 			ok, err := v.checksig(signedData)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if ok {
 				v.stack.Push([]byte{OP_TRUE})
@@ -528,15 +532,15 @@ func (v *VM) Execute(signedData []byte, branch *branch) error {
 		case OP_CHECKSIGVERIFY:
 			ok, err := v.checksig(signedData)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if !ok {
-				return errors.New("checksig verify failed")
+				return nil, errors.New("checksig verify failed")
 			}
 		case OP_CHECKMULTISIG:
 			ok, err := v.checkmultisig(signedData)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if ok {
 				v.stack.Push([]byte{OP_TRUE})
@@ -546,14 +550,24 @@ func (v *VM) Execute(signedData []byte, branch *branch) error {
 		case OP_CHECKMULTISIGVERIFY:
 			ok, err := v.checkmultisig(signedData)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if !ok {
-				return fmt.Errorf("checksig verify failed")
+				return nil, fmt.Errorf("checksig verify failed")
 			}
 		}
 	}
-	return nil
+
+	if workBranch != nil {
+		return nil, nil
+	}
+	ok, top, err := v.topTrue()
+
+	if err != nil || !ok {
+		return top, fmt.Errorf("top of stack is not true, execution failed")
+	}
+	
+	return top, nil
 }
 
 func (v *VM) String() string {
