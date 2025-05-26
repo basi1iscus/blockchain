@@ -61,7 +61,7 @@ func runScript (vm *script_vm.VM,  script []byte, signedData []byte) (string, er
 		return "", fmt.Errorf("failed to parse script: %v", err)
 	}
 	scriptCode := vm.String()
-	_, err = vm.Execute(signedData, nil)
+	_, err = vm.Execute(signedData)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute script: %v", err)
 	}

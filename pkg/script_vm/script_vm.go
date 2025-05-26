@@ -151,18 +151,23 @@ type operation struct{
 	scriptCode OPCode
 	code OPCode
 	data []byte
-	childBranch branch
+	condition bool
 }
 
-type branch struct{
-	queue *queue.Queue[operation]
-	parent *branch
-}
+type opHandler func(ctx *handlerContext, op operation) error
 
 type VM struct {
 	stack  *stack.Stack[[]byte]
-	mainBranch  branch
+	queue  *queue.Queue[operation]
 	signer sign.Signer
+	handlers map[OPCode]opHandler
+	conditionStack stack.Stack[bool]
+	skip bool
+}
+
+type handlerContext struct {
+	vm         *VM
+	signedData []byte
 }
 
 func IsActive(op OPCode) bool {
@@ -174,11 +179,208 @@ func IsActive(op OPCode) bool {
 	return false
 }
 
+var	handlers = map[OPCode]opHandler{
+		OP_PUSHDATA: func(ctx *handlerContext, op operation) error {
+			ctx.vm.stack.Push(op.data)
+			return nil
+		},
+		OP_IF: func(ctx *handlerContext, op operation) error {
+			var err error
+			cond, _, err := ctx.vm.isTopTrue()
+			if err != nil {
+				return err
+			}
+			ctx.vm.conditionStack.Push(cond)
+			ctx.vm.skip = !cond
+			return nil
+		},
+		OP_NOTIF: func(ctx *handlerContext, op operation) error {
+			cond, _, err := ctx.vm.isTopTrue()
+			if err != nil {
+				return err
+			}
+			ctx.vm.conditionStack.Push(!cond)
+			ctx.vm.skip = cond
+			return nil
+		},
+		OP_ELSE: func(ctx *handlerContext, op operation) error {
+			cond, err := ctx.vm.conditionStack.Pop()
+			if err != nil {
+				return errors.New("else without if")
+			}
+			ctx.vm.skip = cond
+			ctx.vm.conditionStack.Push(!cond)
+			return nil
+		},
+		OP_ENDIF: func(ctx *handlerContext, op operation) error {
+			_, err := ctx.vm.conditionStack.Pop()
+			if err != nil {
+				return errors.New("endif without if")
+			}
+			cond, err := ctx.vm.conditionStack.Pick()
+			if err != nil {
+				return nil
+			}
+			ctx.vm.skip = !cond
+			return nil
+		},
+		OP_NOP: func(ctx *handlerContext, op operation) error {
+			return nil
+		},
+		OP_RETURN: func(ctx *handlerContext, op operation) error {
+			return errors.New("return opcode encountered")
+		},
+		OP_IFDUP: func(ctx *handlerContext, op operation) error {
+			top, err := ctx.vm.stack.Pick()
+			if err != nil {
+				return err
+			}
+			if compare(top, make([]byte, len(top))) != 0 {
+				ctx.vm.stack.Push(top)
+			}
+			return nil
+		},
+		OP_DROP: func(ctx *handlerContext, op operation) error {
+			_, err := ctx.vm.stack.Pop()
+			if err != nil {
+				return err
+			}
+			return nil
+		},
+		OP_DUP: func(ctx *handlerContext, op operation) error {
+			top, err := ctx.vm.stack.Pick()
+			if err != nil {
+				return err
+			}
+			ctx.vm.stack.Push(top)
+			return nil
+		},
+		OP_EQUAL: func(ctx *handlerContext, op operation) error {
+			eq, err := ctx.vm.equal()
+			if err != nil {
+				return err
+			}
+			if eq {
+				ctx.vm.stack.Push([]byte{OP_TRUE})
+			} else {
+				ctx.vm.stack.Push([]byte{OP_FALSE})
+			}
+			return nil
+		},
+		OP_EQUALVERIFY: func(ctx *handlerContext, op operation) error {
+			eq, err := ctx.vm.equal()
+			if err != nil {
+				return err
+			}
+			if !eq {
+				return errors.New("equal verify failed")
+			}
+			return nil
+		},
+		OP_VERIFY: func(ctx *handlerContext, op operation) error {
+			if ok, _, err := ctx.vm.isTopTrue(); err == nil || !ok {
+				return fmt.Errorf("verify failed")
+			}
+			return nil
+		},
+		OP_SHA256: func(ctx *handlerContext, op operation) error {
+			top, err := ctx.vm.stack.Pop()
+			if err != nil {
+				return err
+			}
+			hash, err := utils.GetHash(top)
+			if err != nil {
+				return err
+			}
+			ctx.vm.stack.Push(hash)
+			return nil
+		},
+		OP_HASH160: func(ctx *handlerContext, op operation) error {
+			top, err := ctx.vm.stack.Pop()
+			if err != nil {
+				return err
+			}
+			hash, err := utils.GetHash(top)
+			if err != nil {
+				return err
+			}
+			hash160, err := utils.GetHash160(nil, hash)
+			if err != nil {
+				return err
+			}
+			ctx.vm.stack.Push(hash160)
+			return nil
+		},
+		OP_HASH256: func(ctx *handlerContext, op operation) error {
+			top, err := ctx.vm.stack.Pop()
+			if err != nil {
+				return err
+			}
+			hash, err := utils.GetHash(top)
+			if err != nil {
+				return err
+			}
+			hash256, err := utils.GetHash(hash)
+			if err != nil {
+				return err
+			}
+			ctx.vm.stack.Push(hash256)
+			return nil
+		},
+		OP_CHECKSIG: func(ctx *handlerContext, op operation) error {
+			ok, err := ctx.vm.checksig(ctx.signedData)
+			if err != nil {
+				return err
+			}
+			if ok {
+				ctx.vm.stack.Push([]byte{OP_TRUE})
+			} else {
+				ctx.vm.stack.Push([]byte{OP_FALSE})
+			}
+			return nil
+		},
+		OP_CHECKSIGVERIFY: func(ctx *handlerContext, op operation) error {
+			ok, err := ctx.vm.checksig(ctx.signedData)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return errors.New("checksig verify failed")
+			}
+			return nil
+		},
+		OP_CHECKMULTISIG: func(ctx *handlerContext, op operation) error {
+			ok, err := ctx.vm.checkmultisig(ctx.signedData)
+			if err != nil {
+				return err
+			}
+			if ok {
+				ctx.vm.stack.Push([]byte{OP_TRUE})
+			} else {
+				ctx.vm.stack.Push([]byte{OP_FALSE})
+			}
+			return nil
+		},
+		OP_CHECKMULTISIGVERIFY: func(ctx *handlerContext, op operation) error {
+			ok, err := ctx.vm.checkmultisig(ctx.signedData)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("checksig verify failed")
+			}
+			return nil
+		},
+	}	
+
 func New(signer sign.Signer) *VM {
 	return &VM{
 		stack:  stack.New[[]byte](),
 		signer: signer,
-		mainBranch: branch{queue: queue.New[operation](), parent: nil},
+		queue: queue.New[operation](),
+		handlers: handlers,
+		skip: false,
+		conditionStack: stack.Stack[bool]{},
 	}
 }
 
@@ -210,7 +412,7 @@ func (v *VM) equal() (bool, error) {
 	return compare(a, b) == 0, nil
 }
 
-func (v *VM) topTrue() (bool, []byte, error) {
+func (v *VM) isTopTrue() (bool, []byte, error) {
 	top, err := v.stack.Pop()
 	if err != nil {
 		return false, nil, err
@@ -272,55 +474,41 @@ func (v *VM) checkmultisig(data []byte) (bool, error) {
 
 func (v *VM) ParseScript(script []byte) error {
 	pointer := 0
-	currentBranch := &v.mainBranch
 	for pointer < len(script) {
 		inc := 1
 		dataLength := 0
 		opCode := OPCode(script[pointer])
 		switch {
 		case opCode == OP_0:
-			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer : pointer+1]})
+			v.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer : pointer+1]})
 		case opCode == OP_1NEGATE:
-			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer : pointer+1]})
+			v.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer : pointer+1]})
 		case opCode >= OP_1 && opCode <= OP_16:
-			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: []byte{byte(opCode) - OP_1 + 1}})
+			v.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: []byte{byte(opCode) - OP_1 + 1}})
 		case opCode >= OP_PUSHDATA && opCode <= OP_PUSHDATA_4B:
 			dataLength = int(opCode)
 			inc = dataLength + 1
-			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer+1 : pointer+1+dataLength]})
+			v.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer+1 : pointer+1+dataLength]})
 		case opCode == OP_PUSHDATA1:
 			dataLength = int(script[pointer+1])
 			inc = dataLength + 2
-			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer+2 : pointer+2+dataLength]})
+			v.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer+2 : pointer+2+dataLength]})
 		case opCode == OP_PUSHDATA2:
 			dataLength = int(script[pointer+1]) | int(script[pointer+2])<<8
 			inc = dataLength + 3
-			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer+3 : pointer+3+dataLength]})
+			v.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer+3 : pointer+3+dataLength]})
 		case opCode == OP_PUSHDATA4:
 			dataLength = int(script[pointer+1]) | int(script[pointer+2])<<8 | int(script[pointer+3])<<16 | int(script[pointer+4])<<24
 			inc = dataLength + 5
-			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer+5 : pointer+5+dataLength]})
+			v.queue.Enqueue(operation{scriptCode: opCode, code: OP_PUSHDATA, data: script[pointer+5 : pointer+5+dataLength]})
 		case opCode == OP_IF || opCode == OP_NOTIF:
-			child := branch{queue: queue.New[operation](), parent: currentBranch}
-			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: opCode, data: nil, childBranch: child})
-			currentBranch = &child
+			v.queue.Enqueue(operation{scriptCode: opCode, code: opCode, data: nil, condition: true})
 		case opCode == OP_ELSE:
-			parent := currentBranch.parent
-			if parent == nil {
-				return errors.New("else without if")
-			}
-			child := branch{queue: queue.New[operation](), parent: parent}
-			parent.queue.Enqueue(operation{scriptCode: opCode, code: opCode, data: nil, childBranch: child})
-			currentBranch = &child
+			v.queue.Enqueue(operation{scriptCode: opCode, code: opCode, data: nil, condition: true})
 		case opCode == OP_ENDIF:
-			parent := currentBranch.parent
-			if parent == nil {
-				return errors.New("endif without if")
-			}
-			currentBranch = parent
-			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: opCode, data: nil})
+			v.queue.Enqueue(operation{scriptCode: opCode, code: opCode, data: nil, condition: true})
 		case IsActive(opCode):
-			currentBranch.queue.Enqueue(operation{scriptCode: opCode, code: opCode, data: nil})
+			v.queue.Enqueue(operation{scriptCode: opCode, code: opCode, data: nil})
 		default:
 			return fmt.Errorf("unknown opcode %#x", opCode)
 		}
@@ -389,190 +577,43 @@ func (v *VM) Run(script []byte, signedData []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	res, err := v.Execute(signedData, nil)
+	res, err := v.Execute(signedData)
 	if err != nil {	
 		return res, err
 	}
 	return res, nil
 }
 
-func (v *VM) Execute(signedData []byte, workBranch *branch) ([]byte, error) {
-	branch := workBranch
-	if workBranch == nil {
-		branch = &v.mainBranch
+func (v *VM) Execute(signedData []byte) ([]byte, error) {
+
+	ctx := &handlerContext{
+		vm:         v,
+		signedData: signedData,
 	}
-	var lastIf bool
-	for op := range branch.queue.Iterator() {
-		switch (op.code) {
-		case OP_PUSHDATA:
-			v.stack.Push(op.data)
-		case OP_IF:
-			var err error
-			lastIf, _, err = v.topTrue()
-			if err == nil && lastIf {
-				_, err = v.Execute(signedData, &op.childBranch)
-				if err != nil {
-					return nil, err
-				}
-			} else if err != nil {
-				return nil, err
-			}
-		case OP_NOTIF:
-			var err error
-			lastIf, _, err = v.topTrue()
-			lastIf = !lastIf
-			if err == nil && lastIf {
-				_, err = v.Execute(signedData, &op.childBranch)
-				if err != nil {
-					return nil, err
-				}
-			} else if err != nil {
-				return nil, err
-			}
-		case OP_ELSE:
-			if !lastIf {
-				_, err := v.Execute(signedData, &op.childBranch)
-				if err != nil {
-					return nil, err
-				}
-			}
-		case OP_ENDIF:
-		case OP_NOP:
-		case OP_RETURN:
-			return nil, errors.New("return opcode encountered")
-		case OP_IFDUP:
-			top, err := v.stack.Pick()
+
+	for op := range v.queue.Iterator() {
+		if v.skip && !op.condition {
+			continue
+		}
+		handler, ok := v.handlers[op.code]
+		if ok {
+			err := handler(ctx, op)
 			if err != nil {
 				return nil, err
-			}
-			if compare(top, make([]byte, len(top))) != 0 {
-				v.stack.Push(top)
-			}
-		case OP_DROP:
-			_, err := v.stack.Pop()
-			if err != nil {
-				return nil, err
-			}
-		case OP_DUP:
-			top, err := v.stack.Pick()
-			if err != nil {
-				return nil, err
-			}
-			v.stack.Push(top)
-		case OP_EQUAL:
-			eq, err := v.equal()
-			if err != nil {
-				return nil, err
-			}
-			if eq {
-				v.stack.Push([]byte{OP_TRUE})
-			} else {
-				v.stack.Push([]byte{OP_FALSE})
-			}
-		case OP_EQUALVERIFY:
-			eq, err := v.equal()
-			if err != nil {
-				return nil, err
-			}
-			if !eq {
-				return nil, errors.New("equal verify failed")
-			}
-		case OP_VERIFY:
-			if ok, _, err := v.topTrue(); err == nil || !ok {
-				return nil, fmt.Errorf("verify failed")
-			}			
-		case OP_SHA256:
-			top, err := v.stack.Pop()
-			if err != nil {
-				return nil, err
-			}
-			hash, err := utils.GetHash(top)
-			if err != nil {
-				return nil, err
-			}
-			v.stack.Push(hash)
-		case OP_HASH160:
-			top, err := v.stack.Pop()
-			if err != nil {
-				return nil, err
-			}
-			hash, err := utils.GetHash(top)
-			if err != nil {
-				return nil, err
-			}
-			hash160, err := utils.GetHash160(nil, hash)
-			if err != nil {
-				return nil, err
-			}
-			v.stack.Push(hash160)
-		case OP_HASH256:
-			top, err := v.stack.Pop()
-			if err != nil {
-				return nil, err
-			}
-			hash, err := utils.GetHash(top)
-			if err != nil {
-				return nil, err
-			}
-			hash256, err := utils.GetHash(hash)
-			if err != nil {
-				return nil, err
-			}
-			v.stack.Push(hash256)
-		case OP_CHECKSIG:
-			ok, err := v.checksig(signedData)
-			if err != nil {
-				return nil, err
-			}
-			if ok {
-				v.stack.Push([]byte{OP_TRUE})
-			} else {
-				v.stack.Push([]byte{OP_FALSE})
-			}
-		case OP_CHECKSIGVERIFY:
-			ok, err := v.checksig(signedData)
-			if err != nil {
-				return nil, err
-			}
-			if !ok {
-				return nil, errors.New("checksig verify failed")
-			}
-		case OP_CHECKMULTISIG:
-			ok, err := v.checkmultisig(signedData)
-			if err != nil {
-				return nil, err
-			}
-			if ok {
-				v.stack.Push([]byte{OP_TRUE})
-			} else {
-				v.stack.Push([]byte{OP_FALSE})
-			}
-		case OP_CHECKMULTISIGVERIFY:
-			ok, err := v.checkmultisig(signedData)
-			if err != nil {
-				return nil, err
-			}
-			if !ok {
-				return nil, fmt.Errorf("checksig verify failed")
 			}
 		}
 	}
 
-	if workBranch != nil {
-		return nil, nil
-	}
-	ok, top, err := v.topTrue()
-
+	ok, top, err := v.isTopTrue()
 	if err != nil || !ok {
 		return top, fmt.Errorf("top of stack is not true, execution failed")
 	}
-	
 	return top, nil
 }
 
 func (v *VM) String() string {
 
-	branch := v.mainBranch.queue.ToArray()
+	branch := v.queue.ToArray()
 	var result string
 	for _, op := range branch {
 		name, ok := OpCodeNames[op.code]

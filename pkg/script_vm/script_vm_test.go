@@ -84,7 +84,7 @@ func TestVM_P2PKH(t *testing.T) {
 	fmt.Printf("Check hash: %#x\n", signedData)
 	fmt.Println("Parsed script:")
 	fmt.Println(vm)
-	_, err = vm.Execute(signedData[:], nil)
+	_, err = vm.Execute(signedData[:])
 	if err != nil {
 		t.Fatalf("VM failed: %v", err)
 	}	
@@ -166,6 +166,7 @@ func TestVM_IfElse(t *testing.T) {
 		want   []byte
 		wantErr bool
 	}{
+
 		{
 			"OP_IF true branch",
 			[]byte{1, 0x01, OP_IF, 1, 0xAA, OP_ELSE, 1, 0xBB, OP_ENDIF},
@@ -186,8 +187,19 @@ func TestVM_IfElse(t *testing.T) {
 			[]byte{1, 0x01, OP_NOTIF, 1, 0xCC, OP_ELSE, 1, 0xDD, OP_ENDIF},
 			[]byte{0xDD}, false,
 		},
+		{
+			"Included OP_IF OP_IF",
+			[]byte{1, 0x01, OP_IF, 1, 0xCC, OP_IF, 1, 0xEE, OP_ELSE, 1, 0xFF, OP_ENDIF, OP_ELSE, 1, 0xDD, OP_ENDIF},
+			[]byte{0xEE}, false,
+		},
+		{
+			"Included OP_IF OP_ELSE",
+			[]byte{1, 0x01, OP_IF, 1, 0xCC, OP_0, OP_IF, 1, 0xEE, OP_ELSE, 1, 0xFF, OP_ENDIF, OP_ELSE, 1, 0xDD, OP_ENDIF},
+			[]byte{0xFF}, false,
+		},
+		
 	}
-
+	
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			vm := New(&signer)
@@ -482,7 +494,7 @@ func TestVM_Parse_And_Compile(t *testing.T) {
 	if err != nil {	
 		t.Fatalf("failed to parse script: %v", err)
 	}
-	_, err = vm2.Execute(signedData[:], nil)
+	_, err = vm2.Execute(signedData[:])
 	if err != nil {
 		t.Fatalf("VM failed: %v", err)
 	}	
