@@ -118,12 +118,43 @@ The demo provides a simple HTTP API using [Gin](https://github.com/gin-gonic/gin
 - **Response:**
   - Returns the parsed script code as a string (or error message if execution fails).
 
+### POST `/api/sript/compile`
+- **Description:** Compiles ScriptSig and ScriptPubKey from human-readable string to bytecode (hex).
+- **Request JSON:**
+  - `script_sig`: ScriptSig as string (multiline, VM format)
+  - `script_pub_key`: ScriptPubKey as string (multiline, VM format)
+- **Response:**
+  - `scriptSig`: ScriptSig as hex string
+  - `scriptPubKey`: ScriptPubKey as hex string
+
+### POST `/api/sript/parse`
+- **Description:** Parses ScriptSig and ScriptPubKey from bytecode (hex) to human-readable string (VM format).
+- **Request JSON:**
+  - `script_sig`: ScriptSig as hex string (optional)
+  - `script_pub_key`: ScriptPubKey as hex string (optional)
+- **Response:**
+  - `scriptSig`: ScriptSig as string (VM format)
+  - `scriptPubKey`: ScriptPubKey as string (VM format)
+
 ### GET `/ping`
 - **Description:** Health check endpoint. Returns `{ "message": "pong" }`.
 
 ---
 
 You can use tools like [Postman](https://www.postman.com/) or `curl` to interact with these endpoints.
+
+## Web Client
+
+A simple web client is provided in the `public/` directory. It allows you to:
+- Create wallets
+- Compile and parse scripts
+- Run scripts and view VM output
+
+To use the web client:
+1. Start the Go backend: `go run ./cmd/main.go`
+2. Open `public/index.html` in your browser (or use the built-in static server at `/`).
+
+The web client interacts with the API endpoints above for blockchain and script VM operations.
 
 ## License
 
